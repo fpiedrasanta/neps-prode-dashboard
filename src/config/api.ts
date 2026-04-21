@@ -4,8 +4,8 @@
  */
 
 export const API_CONFIG = {
-  BASE_URL: 'https://localhost:7163/api',
-  CDN_URL: 'https://localhost:7163',
+  BASE_URL: 'https://prode-api.neps.com.ar/api',
+  CDN_URL: 'https://prode-api.neps.com.ar',
   TIMEOUT: 15000,
   ENDPOINTS: {
     AUTH: {
