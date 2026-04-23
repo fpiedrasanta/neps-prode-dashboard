@@ -118,7 +118,7 @@ pipeline {
         SQL_INSTANCE         = "NEPS-DEV02"
         DB_NAME              = "bd_neps_prode"
         MAX_BACKUPS          = "5"
-        PROYECTO             = "prode-neps"
+        PROYECTO             = "prode-neps-dashboard"
         DEPLOY_SCRIPTS_PATH  = "Jenkins"
         SCRIPTS_PATH         = "00 - src\\Scripts"
         ENTORNO              = "main" 
