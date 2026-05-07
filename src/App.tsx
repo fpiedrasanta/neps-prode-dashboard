@@ -13,6 +13,8 @@ import Matches from './pages/dashboard/Matches';
 import Countries from './pages/dashboard/Countries';
 import Cities from './pages/dashboard/Cities';
 import Teams from './pages/dashboard/Teams';
+import SpecialPosts from './pages/dashboard/SpecialPosts';
+import Images from './pages/dashboard/Images';
 
 function App() {
   return (
@@ -35,6 +37,8 @@ function App() {
             <Route path="estadisticas" element={<Estadisticas />} />
             <Route path="usuarios" element={<Usuarios />} />
             <Route path="configuracion" element={<Configuracion />} />
+            <Route path="posts-especiales" element={<SpecialPosts />} />
+            <Route path="imagenes" element={<Images />} />
           </Route>
 
           <Route path="*" element={<Navigate to="/login" replace />} />

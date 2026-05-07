@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Outlet, useNavigate } from 'react-router-dom';
-import { Menu, X, LogOut, Home, Settings, Users, BarChart3, Trophy, Globe, MapPin, Shield } from 'lucide-react';
+import { Menu, X, LogOut, Home, Settings, Users, BarChart3, Trophy, Globe, MapPin, Shield, FileText, Image } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import './DashboardLayout.css';
 
@@ -20,6 +20,8 @@ const DashboardLayout = () => {
     { icon: MapPin, label: 'Ciudades', path: '/dashboard/ciudades' },
     { icon: Shield, label: 'Equipos', path: '/dashboard/equipos' },
     { icon: Trophy, label: 'Partidos', path: '/dashboard/partidos' },
+    { icon: FileText, label: 'Posts Especiales', path: '/dashboard/posts-especiales' },
+    { icon: Image, label: 'Imágenes', path: '/dashboard/imagenes' },
     { icon: BarChart3, label: 'Estadísticas', path: '/dashboard/estadisticas' },
     { icon: Users, label: 'Usuarios', path: '/dashboard/usuarios' },
     { icon: Settings, label: 'Configuración', path: '/dashboard/configuracion' },
