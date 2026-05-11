@@ -7,6 +7,7 @@ export interface SpecialPost {
   content: string;
   createdAt: string;
   updatedAt?: string;
+  scheduledAt?: string;
   userId?: string | null;
   userFullName?: string | null;
   matchId?: string | null;
@@ -22,6 +23,7 @@ export interface SpecialPost {
 export interface SpecialPostPayload {
   title: string;
   content: string;
+  scheduledAt?: string;
 }
 
 export interface SpecialPostListResponse {

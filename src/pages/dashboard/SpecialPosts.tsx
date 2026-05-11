@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Editor } from '@tinymce/tinymce-react';
-import { specialPostService, type SpecialPost } from '../../services/special-post.service';
+import { specialPostService, type SpecialPost, type SpecialPostPayload } from '../../services/special-post.service';
 import { Search, Plus, Edit2, Trash2, X, AlertTriangle, FileText, Calendar } from 'lucide-react';
 import './SpecialPosts.css';
 
@@ -26,7 +26,8 @@ const SpecialPosts = () => {
   
   const [formData, setFormData] = useState({
     title: '',
-    content: ''
+    content: '',
+    scheduledAt: ''
   });
 
   const [error, setError] = useState<string | null>(null);
@@ -93,7 +94,8 @@ const SpecialPosts = () => {
     setEditingPost(null);
     setFormData({
       title: '',
-      content: ''
+      content: '',
+      scheduledAt: ''
     });
     setShowModal(true);
   };
@@ -102,7 +104,10 @@ const SpecialPosts = () => {
     setEditingPost(post);
     setFormData({
       title: post.title,
-      content: post.content
+      content: post.content,
+      scheduledAt: post.scheduledAt
+        ? new Date(post.scheduledAt).toLocaleString('sv-SE', { timeZone: 'America/Argentina/Buenos_Aires' }).replace(' ', 'T').substring(0, 16)
+        : ''
     });
     setShowModal(true);
   };
@@ -128,11 +133,19 @@ const SpecialPosts = () => {
       setSaving(true);
       setError(null);
 
+      const payload: SpecialPostPayload = {
+        title: formData.title,
+        content: formData.content,
+        scheduledAt: formData.scheduledAt
+          ? new Date(formData.scheduledAt).toISOString()
+          : undefined
+      };
+
       if (editingPost) {
-        await specialPostService.updateSpecialPost(editingPost.id, formData);
+        await specialPostService.updateSpecialPost(editingPost.id, payload);
         setSuccess('Post actualizado correctamente');
       } else {
-        await specialPostService.createSpecialPost(formData);
+        await specialPostService.createSpecialPost(payload);
         setSuccess('Post creado correctamente');
       }
 
@@ -304,6 +317,18 @@ const SpecialPosts = () => {
                     setFormData(prev => ({ ...prev, content: newContent }));
                   }}
                 />
+              </div>
+
+              <div className="form-group">
+                <label>Fecha de publicación programada (opcional)</label>
+                <input
+                  type="datetime-local"
+                  value={formData.scheduledAt}
+                  onChange={(e) => setFormData(prev => ({ ...prev, scheduledAt: e.target.value }))}
+                />
+                <small className="form-text-muted">
+                  Si no se especifica, se usará la fecha actual. Si se especifica, el post se mostrará a partir de esa fecha y hora.
+                </small>
               </div>
 
               <div className="form-hint">
