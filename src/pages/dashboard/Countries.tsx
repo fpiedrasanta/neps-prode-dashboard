@@ -8,7 +8,6 @@ const Countries = () => {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   
   const [showModal, setShowModal] = useState(false);
@@ -28,9 +27,11 @@ const Countries = () => {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  // Sentinel (centinela) para IntersectionObserver - detecta cuando llegamos al final
+  // Refs estables - no causan recreación del useCallback ni del IntersectionObserver
   const sentinelRef = useRef<HTMLDivElement>(null);
   const loadingRef = useRef(false);
+  const hasMoreRef = useRef(true);
+  const pageRef = useRef(1);
 
   const loadCountries = useCallback(async (reset: boolean = false) => {
     if (loadingRef.current) return;
@@ -40,17 +41,19 @@ const Countries = () => {
       setLoading(true);
       setError(null);
       
-      const response = await countryService.getCountries(searchTerm, 'name', false, reset ? 1 : page, 10);
+      const currentPage = reset ? 1 : pageRef.current;
+      const response = await countryService.getCountries(searchTerm, 'name', false, currentPage, 10);
       
       if (reset) {
         setCountries(response.items);
-        setPage(2);
+        pageRef.current = 2;
       } else {
         setCountries(prev => [...prev, ...response.items]);
-        setPage(prev => prev + 1);
+        pageRef.current += 1;
       }
       
       setHasMore(response.hasNextPage);
+      hasMoreRef.current = response.hasNextPage;
     } catch (err) {
       setError('No se pudieron cargar los países');
       console.error(err);
@@ -58,17 +61,19 @@ const Countries = () => {
       loadingRef.current = false;
       setLoading(false);
     }
-  }, [searchTerm, page]);
+  }, [searchTerm]);
 
   useEffect(() => {
+    pageRef.current = 1;
     setCountries([]);
-    setPage(1);
     setHasMore(true);
+    hasMoreRef.current = true;
     loadCountries(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchTerm]);
 
   // IntersectionObserver para scroll infinito
+  // ⚠️ hasMore como dependencia asegura reconectar el observer tras cada carga
   useEffect(() => {
     const sentinel = sentinelRef.current;
     if (!sentinel) return;
@@ -76,7 +81,7 @@ const Countries = () => {
     const observer = new IntersectionObserver(
       (entries) => {
         const entry = entries[0];
-        if (entry.isIntersecting && hasMore && !loadingRef.current) {
+        if (entry.isIntersecting && hasMoreRef.current && !loadingRef.current) {
           loadCountries();
         }
       },
@@ -85,17 +90,23 @@ const Countries = () => {
 
     observer.observe(sentinel);
     return () => observer.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasMore, loadCountries]);
+
+  // Si el contenido no desborda el contenedor, cargar más automáticamente
+  useEffect(() => {
+    if (!loading && hasMore && countries.length > 0) {
+      const el = sentinelRef.current;
+      const container = el?.parentElement;
+      if (container && container.scrollHeight <= container.clientHeight) {
+        loadCountries();
+      }
+    }
+  }, [countries, loading, hasMore, loadCountries]);
 
   const openCreateModal = () => {
     setEditingCountry(null);
-    setFormData({
-      name: '',
-      isoCode: '',
-      isoCode2: '',
-      flagImage: null,
-      flagPreview: ''
-    });
+    setFormData({ name: '', isoCode: '', isoCode2: '', flagImage: null, flagPreview: '' });
     setShowModal(true);
   };
 
@@ -111,87 +122,56 @@ const Countries = () => {
     setShowModal(true);
   };
 
-  const openDeleteModal = (country: Country) => {
-    setDeletingCountry(country);
-    setShowDeleteConfirm(true);
-  };
+  const openDeleteModal = (country: Country) => { setDeletingCountry(country); setShowDeleteConfirm(true); };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0] || null;
-    setFormData(prev => ({
-      ...prev,
-      flagImage: file,
-      flagPreview: file ? URL.createObjectURL(file) : prev.flagPreview
-    }));
+    setFormData(prev => ({ ...prev, flagImage: file, flagPreview: file ? URL.createObjectURL(file) : prev.flagPreview }));
+  };
+
+  const reloadList = () => {
+    pageRef.current = 1;
+    setCountries([]);
+    setHasMore(true);
+    hasMoreRef.current = true;
+    loadCountries(true);
   };
 
   const handleSave = async () => {
     try {
       setSaving(true);
       setError(null);
-
       if (editingCountry) {
-        await countryService.updateCountry({
-          id: editingCountry.id,
-          name: formData.name,
-          isoCode: formData.isoCode,
-          isoCode2: formData.isoCode2 || undefined,
-          flagImage: formData.flagImage
-        });
+        await countryService.updateCountry({ id: editingCountry.id, name: formData.name, isoCode: formData.isoCode, isoCode2: formData.isoCode2 || undefined, flagImage: formData.flagImage });
         setSuccess('País actualizado correctamente');
       } else {
-        await countryService.createCountry({
-          name: formData.name,
-          isoCode: formData.isoCode,
-          isoCode2: formData.isoCode2 || undefined,
-          flagImage: formData.flagImage
-        });
+        await countryService.createCountry({ name: formData.name, isoCode: formData.isoCode, isoCode2: formData.isoCode2 || undefined, flagImage: formData.flagImage });
         setSuccess('País creado correctamente');
       }
-
       setShowModal(false);
       setTimeout(() => setSuccess(null), 3000);
-      
-      // Recargar lista
-      setCountries([]);
-      setPage(1);
-      setHasMore(true);
-      loadCountries(true);
-      
+      reloadList();
     } catch (err) {
       setError('No se pudo guardar el país. Intentá nuevamente.');
       console.error(err);
-    } finally {
-      setSaving(false);
-    }
+    } finally { setSaving(false); }
   };
 
   const handleDelete = async () => {
     if (!deletingCountry) return;
-    
     try {
       setSaving(true);
       setError(null);
-      
       await countryService.deleteCountry(deletingCountry.id);
-      
       setSuccess('País eliminado correctamente');
       setShowDeleteConfirm(false);
       setDeletingCountry(null);
       setTimeout(() => setSuccess(null), 3000);
-      
-      // Recargar lista
-      setCountries([]);
-      setPage(1);
-      setHasMore(true);
-      loadCountries(true);
-      
+      reloadList();
     } catch (err) {
       setError('No se pudo eliminar el país. Intentá nuevamente.');
       console.error(err);
-    } finally {
-      setSaving(false);
-    }
+    } finally { setSaving(false); }
   };
 
   return (
@@ -201,29 +181,19 @@ const Countries = () => {
           <h1>Gestión de Países</h1>
           <p>Administra los paises disponibles del sistema</p>
         </div>
-        <button className="btn btn-primary create-btn" onClick={openCreateModal}>
-          <Plus size={18} />
-          Nuevo País
-        </button>
+        <button className="btn btn-primary create-btn" onClick={openCreateModal}><Plus size={18} /> Nuevo País</button>
       </div>
 
       {error && <div className="alert alert-error">{error}</div>}
       {success && <div className="alert alert-success">{success}</div>}
 
-      {/* Buscador */}
       <div className="search-bar">
         <div className="search-input">
           <Search size={18} />
-          <input
-            type="text"
-            placeholder="Buscar país por nombre..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
+          <input type="text" placeholder="Buscar país por nombre..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
         </div>
       </div>
 
-      {/* Tabla de Paises */}
       <div className="countries-container">
         <table className="countries-table">
           <thead>
@@ -238,161 +208,64 @@ const Countries = () => {
           <tbody>
             {countries.map(country => (
               <tr key={country.id}>
-                <td>
-                  <img 
-                    src={countryService.getFlagFullUrl(country.flagUrl)} 
-                    alt={country.name} 
-                    className="country-flag"
-                  />
-                </td>
+                <td><img src={countryService.getFlagFullUrl(country.flagUrl)} alt={country.name} className="country-flag" /></td>
                 <td className="country-name">{country.name}</td>
                 <td>{country.isoCode}</td>
                 <td>{country.isoCode2 || '-'}</td>
                 <td className="actions">
-                  <button className="icon-btn edit" onClick={() => openEditModal(country)}>
-                    <Edit2 size={16} />
-                  </button>
-                  <button className="icon-btn delete" onClick={() => openDeleteModal(country)}>
-                    <Trash2 size={16} />
-                  </button>
+                  <button className="icon-btn edit" onClick={() => openEditModal(country)}><Edit2 size={16} /></button>
+                  <button className="icon-btn delete" onClick={() => openDeleteModal(country)}><Trash2 size={16} /></button>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
 
-        {/* Sentinel: elemento invisible al final que dispara la carga de más datos */}
         <div ref={sentinelRef} style={{ height: 1 }} />
 
-        {loading && (
-          <div className="loading-more">
-            <div className="spinner"></div>
-            <span>Cargando más paises...</span>
-          </div>
-        )}
-
-        {!hasMore && countries.length > 0 && (
-          <div className="loading-more" style={{ color: '#94a3b8' }}>
-            <span>No hay más paises para mostrar</span>
-          </div>
-        )}
-
-        {countries.length === 0 && !loading && (
-          <div className="empty-state">
-            <p>No se encontraron paises</p>
-          </div>
-        )}
+        {loading && <div className="loading-more"><div className="spinner"></div><span>Cargando más paises...</span></div>}
+        {!hasMore && countries.length > 0 && <div className="loading-more" style={{ color: '#94a3b8' }}><span>No hay más paises para mostrar</span></div>}
+        {countries.length === 0 && !loading && <div className="empty-state"><p>No se encontraron paises</p></div>}
       </div>
 
-      {/* Modal Crear/Editar */}
       {showModal && (
         <div className="modal-overlay">
           <div className="modal country-modal">
-            <div className="modal-header">
-              <h3>{editingCountry ? 'Editar País' : 'Nuevo País'}</h3>
-              <button className="close-btn" onClick={() => setShowModal(false)}>
-                <X size={20} />
-              </button>
-            </div>
-
+            <div className="modal-header"><h3>{editingCountry ? 'Editar País' : 'Nuevo País'}</h3><button className="close-btn" onClick={() => setShowModal(false)}><X size={20} /></button></div>
             <div className="modal-body">
               <div className="form-grid">
-                <div className="form-group">
-                  <label>Nombre del País</label>
-                  <input
-                    type="text"
-                    value={formData.name}
-                    onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
-                    placeholder="Ej: Argentina"
-                  />
-                </div>
-
-                <div className="form-group">
-                  <label>Código ISO</label>
-                  <input
-                    type="text"
-                    value={formData.isoCode}
-                    onChange={(e) => setFormData(prev => ({ ...prev, isoCode: e.target.value.toUpperCase() }))}
-                    placeholder="Ej: ARG"
-                    maxLength={5}
-                  />
-                </div>
-
-                <div className="form-group">
-                  <label>Código ISO 2</label>
-                  <input
-                    type="text"
-                    value={formData.isoCode2}
-                    onChange={(e) => setFormData(prev => ({ ...prev, isoCode2: e.target.value.toUpperCase() }))}
-                    placeholder="Ej: AR"
-                    maxLength={3}
-                  />
-                </div>
-
+                <div className="form-group"><label>Nombre del País</label><input type="text" value={formData.name} onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))} placeholder="Ej: Argentina" /></div>
+                <div className="form-group"><label>Código ISO</label><input type="text" value={formData.isoCode} onChange={(e) => setFormData(prev => ({ ...prev, isoCode: e.target.value.toUpperCase() }))} placeholder="Ej: ARG" maxLength={5} /></div>
+                <div className="form-group"><label>Código ISO 2</label><input type="text" value={formData.isoCode2} onChange={(e) => setFormData(prev => ({ ...prev, isoCode2: e.target.value.toUpperCase() }))} placeholder="Ej: AR" maxLength={3} /></div>
                 <div className="form-group">
                   <label>Bandera</label>
-                  <input 
-                    type="file" 
-                    ref={fileInputRef}
-                    accept="image/*"
-                    onChange={handleFileChange}
-                    className="hidden-input"
-                  />
+                  <input type="file" ref={fileInputRef} accept="image/*" onChange={handleFileChange} className="hidden-input" />
                   <div className="file-upload" onClick={() => fileInputRef.current?.click()}>
-                    {formData.flagPreview ? (
-                      <img src={formData.flagPreview} alt="Preview" className="flag-preview" />
-                    ) : (
-                      <>
-                        <Upload size={24} />
-                        <span>Haz clic para seleccionar imagen</span>
-                      </>
-                    )}
+                    {formData.flagPreview ? <img src={formData.flagPreview} alt="Preview" className="flag-preview" /> : <><Upload size={24} /><span>Haz clic para seleccionar imagen</span></>}
                   </div>
                 </div>
               </div>
             </div>
-
             <div className="modal-footer">
-              <button className="btn btn-secondary" onClick={() => setShowModal(false)} disabled={saving}>
-                Cancelar
-              </button>
-              <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
-                {saving ? 'Guardando...' : 'Guardar'}
-              </button>
+              <button className="btn btn-secondary" onClick={() => setShowModal(false)} disabled={saving}>Cancelar</button>
+              <button className="btn btn-primary" onClick={handleSave} disabled={saving}>{saving ? 'Guardando...' : 'Guardar'}</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Modal Confirmar Eliminación */}
       {showDeleteConfirm && (
         <div className="modal-overlay">
           <div className="modal">
             <div className="modal-body confirm-body">
               <AlertTriangle size={48} className="warning-icon" />
               <h4>¿Estás seguro?</h4>
-              <p>
-                Vas a eliminar el país <strong>{deletingCountry?.name}</strong>. 
-                Esta acción no se puede deshacer.
-              </p>
+              <p>Vas a eliminar el país <strong>{deletingCountry?.name}</strong>. Esta acción no se puede deshacer.</p>
               <p className="warning-text">Se eliminaran todos los datos relacionados.</p>
             </div>
-
             <div className="modal-footer">
-              <button 
-                className="btn btn-secondary" 
-                onClick={() => setShowDeleteConfirm(false)}
-                disabled={saving}
-              >
-                Cancelar
-              </button>
-              <button 
-                className="btn btn-danger" 
-                onClick={handleDelete}
-                disabled={saving}
-              >
-                {saving ? 'Eliminando...' : 'Confirmar Eliminación'}
-              </button>
+              <button className="btn btn-secondary" onClick={() => setShowDeleteConfirm(false)} disabled={saving}>Cancelar</button>
+              <button className="btn btn-danger" onClick={handleDelete} disabled={saving}>{saving ? 'Eliminando...' : 'Confirmar Eliminación'}</button>
             </div>
           </div>
         </div>

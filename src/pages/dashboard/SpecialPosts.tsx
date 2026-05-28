@@ -9,7 +9,6 @@ const SpecialPosts = () => {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
 
   const [showModal, setShowModal] = useState(false);
@@ -17,38 +16,33 @@ const SpecialPosts = () => {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deletingPost, setDeletingPost] = useState<SpecialPost | null>(null);
   
-  const [formData, setFormData] = useState({
-    title: '',
-    content: '',
-    scheduledAt: ''
-  });
-
+  const [formData, setFormData] = useState({ title: '', content: '', scheduledAt: '' });
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  // Sentinel (centinela) para IntersectionObserver
   const sentinelRef = useRef<HTMLDivElement>(null);
   const loadingRef = useRef(false);
+  const hasMoreRef = useRef(true);
+  const pageRef = useRef(1);
 
   const loadPosts = useCallback(async (reset: boolean = false) => {
     if (loadingRef.current) return;
-    
     try {
       loadingRef.current = true;
       setLoading(true);
       setError(null);
-      
-      const response = await specialPostService.getSpecialPosts(reset ? 1 : page, 10, searchTerm);
-      
+      const currentPage = reset ? 1 : pageRef.current;
+      const response = await specialPostService.getSpecialPosts(currentPage, 10, searchTerm);
       if (reset) {
         setPosts(response.posts);
-        setPage(2);
+        pageRef.current = 2;
       } else {
         setPosts(prev => [...prev, ...response.posts]);
-        setPage(prev => prev + 1);
+        pageRef.current += 1;
       }
-      
-      setHasMore(response.pageNumber < response.totalPages);
+      const more = response.pageNumber < response.totalPages;
+      setHasMore(more);
+      hasMoreRef.current = more;
     } catch (err) {
       console.error(err);
       setError('No se pudieron cargar los posts especiales');
@@ -56,331 +50,129 @@ const SpecialPosts = () => {
       loadingRef.current = false;
       setLoading(false);
     }
-  }, [searchTerm, page]);
+  }, [searchTerm]);
 
   useEffect(() => {
+    pageRef.current = 1;
     setPosts([]);
-    setPage(1);
     setHasMore(true);
+    hasMoreRef.current = true;
     loadPosts(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchTerm, loadPosts]);
 
-  // IntersectionObserver para scroll infinito
   useEffect(() => {
     const sentinel = sentinelRef.current;
     if (!sentinel) return;
-
     const observer = new IntersectionObserver(
       (entries) => {
-        const entry = entries[0];
-        if (entry.isIntersecting && hasMore && !loadingRef.current) {
-          loadPosts();
-        }
+        if (entries[0].isIntersecting && hasMoreRef.current && !loadingRef.current) loadPosts();
       },
       { rootMargin: '100px' }
     );
-
     observer.observe(sentinel);
     return () => observer.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasMore, loadPosts]);
 
-  const openCreateModal = () => {
-    setEditingPost(null);
-    setFormData({
-      title: '',
-      content: '',
-      scheduledAt: ''
-    });
-    setShowModal(true);
-  };
+  useEffect(() => {
+    if (!loading && hasMore && posts.length > 0) {
+      const container = sentinelRef.current?.parentElement;
+      if (container && container.scrollHeight <= container.clientHeight) loadPosts();
+    }
+  }, [posts, loading, hasMore, loadPosts]);
 
-  const openEditModal = (post: SpecialPost) => {
-    setEditingPost(post);
-    setFormData({
-      title: post.title,
-      content: post.content,
-      scheduledAt: post.scheduledAt
-        ? new Date(post.scheduledAt).toLocaleString('sv-SE', { timeZone: 'America/Argentina/Buenos_Aires' }).replace(' ', 'T').substring(0, 16)
-        : ''
-    });
-    setShowModal(true);
-  };
+  const stripHtml = (html: string) => { const tmp = document.createElement('div'); tmp.innerHTML = html; return tmp.textContent || tmp.innerText || ''; };
 
-  const openDeleteModal = (post: SpecialPost) => {
-    setDeletingPost(post);
-    setShowDeleteConfirm(true);
-  };
-
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('es-AR', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  };
+  const openCreateModal = () => { setEditingPost(null); setFormData({ title: '', content: '', scheduledAt: '' }); setShowModal(true); };
+  const openEditModal = (post: SpecialPost) => { setEditingPost(post); setFormData({ title: post.title, content: post.content, scheduledAt: post.scheduledAt ? new Date(post.scheduledAt).toLocaleString('sv-SE', { timeZone: 'America/Argentina/Buenos_Aires' }).replace(' ', 'T').substring(0, 16) : '' }); setShowModal(true); };
+  const openDeleteModal = (post: SpecialPost) => { setDeletingPost(post); setShowDeleteConfirm(true); };
+  const formatDate = (dateString: string) => new Date(dateString).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 
   const handleSave = async () => {
     try {
-      setSaving(true);
-      setError(null);
-
-      const payload: SpecialPostPayload = {
-        title: formData.title,
-        content: formData.content,
-        scheduledAt: formData.scheduledAt
-          ? new Date(formData.scheduledAt).toISOString()
-          : undefined
-      };
-
-      if (editingPost) {
-        await specialPostService.updateSpecialPost(editingPost.id, payload);
-        setSuccess('Post actualizado correctamente');
-      } else {
-        await specialPostService.createSpecialPost(payload);
-        setSuccess('Post creado correctamente');
-      }
-
-      setShowModal(false);
-      setTimeout(() => setSuccess(null), 3000);
-      
-      // Recargar lista
-      setPosts([]);
-      setPage(1);
-      setHasMore(true);
-      loadPosts(true);
-      
-    } catch (err) {
-      setError('No se pudo guardar el post. Intentá nuevamente.');
-      console.error(err);
-    } finally {
-      setSaving(false);
-    }
+      setSaving(true); setError(null);
+      const payload: SpecialPostPayload = { title: formData.title, content: formData.content, scheduledAt: formData.scheduledAt ? new Date(formData.scheduledAt).toISOString() : undefined };
+      if (editingPost) { await specialPostService.updateSpecialPost(editingPost.id, payload); setSuccess('Post actualizado correctamente'); }
+      else { await specialPostService.createSpecialPost(payload); setSuccess('Post creado correctamente'); }
+      setShowModal(false); setTimeout(() => setSuccess(null), 3000);
+      pageRef.current = 1; setPosts([]); setHasMore(true); hasMoreRef.current = true; loadPosts(true);
+    } catch (err) { setError('No se pudo guardar el post. Intentá nuevamente.'); console.error(err); }
+    finally { setSaving(false); }
   };
 
   const handleDelete = async () => {
     if (!deletingPost) return;
-    
     try {
-      setSaving(true);
-      setError(null);
-      
+      setSaving(true); setError(null);
       await specialPostService.deleteSpecialPost(deletingPost.id);
-      
-      setSuccess('Post eliminado correctamente');
-      setShowDeleteConfirm(false);
-      setDeletingPost(null);
+      setSuccess('Post eliminado correctamente'); setShowDeleteConfirm(false); setDeletingPost(null);
       setTimeout(() => setSuccess(null), 3000);
-      
-      // Recargar lista
-      setPosts([]);
-      setPage(1);
-      setHasMore(true);
-      loadPosts(true);
-      
-    } catch (err) {
-      setError('No se pudo eliminar el post. Intentá nuevamente.');
-      console.error(err);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const stripHtml = (html: string) => {
-    const tmp = document.createElement('div');
-    tmp.innerHTML = html;
-    return tmp.textContent || tmp.innerText || '';
+      pageRef.current = 1; setPosts([]); setHasMore(true); hasMoreRef.current = true; loadPosts(true);
+    } catch (err) { setError('No se pudo eliminar el post. Intentá nuevamente.'); console.error(err); }
+    finally { setSaving(false); }
   };
 
   return (
     <div className="special-posts-page">
       <div className="page-header">
-        <div>
-          <h1>Posts Especiales</h1>
-          <p>Administra los posts destacados del sistema</p>
-        </div>
-        <button className="btn btn-primary create-btn" onClick={openCreateModal}>
-          <Plus size={18} />
-          Nuevo Post
-        </button>
+        <div><h1>Posts Especiales</h1><p>Administra los posts destacados del sistema</p></div>
+        <button className="btn btn-primary create-btn" onClick={openCreateModal}><Plus size={18} /> Nuevo Post</button>
       </div>
-
       {error && <div className="alert alert-error">{error}</div>}
       {success && <div className="alert alert-success">{success}</div>}
-
-      {/* Buscador */}
       <div className="search-bar">
-        <div className="search-input">
-          <Search size={18} />
-          <input
-            type="text"
-            placeholder="Buscar post por título o contenido..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
-        </div>
+        <div className="search-input"><Search size={18} /><input type="text" placeholder="Buscar post por título o contenido..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} /></div>
       </div>
-
-      {/* Lista de Posts */}
       <div className="posts-container">
         {posts.length === 0 && !loading ? (
-          <div className="empty-state">
-            <FileText size={48} />
-            <p>No se encontraron posts especiales</p>
-          </div>
+          <div className="empty-state"><FileText size={48} /><p>No se encontraron posts especiales</p></div>
         ) : (
           <>
             {posts.map(post => (
               <div key={post.id} className="post-card">
                 <div className="post-header">
                   <div className="post-title" dangerouslySetInnerHTML={{ __html: post.title }} />
-                  <div className="post-date">
-                    <Calendar size={14} />
-                    <span>{formatDate(post.createdAt)}</span>
-                  </div>
+                  <div className="post-date"><Calendar size={14} /><span>{formatDate(post.createdAt)}</span></div>
                 </div>
-                
-                <div className="post-content-preview">
-                  {stripHtml(post.content).substring(0, 150)}
-                  {stripHtml(post.content).length > 150 && '...'}
-                </div>
-
+                <div className="post-content-preview">{stripHtml(post.content).substring(0, 150)}{stripHtml(post.content).length > 150 && '...'}</div>
                 <div className="post-actions">
-                  <button className="icon-btn edit" onClick={() => openEditModal(post)}>
-                    <Edit2 size={16} />
-                    Editar
-                  </button>
-                  <button className="icon-btn delete" onClick={() => openDeleteModal(post)}>
-                    <Trash2 size={16} />
-                    Eliminar
-                  </button>
+                  <button className="icon-btn edit" onClick={() => openEditModal(post)}><Edit2 size={16} /> Editar</button>
+                  <button className="icon-btn delete" onClick={() => openDeleteModal(post)}><Trash2 size={16} /> Eliminar</button>
                 </div>
               </div>
             ))}
-
-            {/* Sentinel: elemento invisible al final */}
             <div ref={sentinelRef} style={{ height: 1 }} />
-
-            {loading && (
-              <div className="loading-more">
-                <div className="spinner"></div>
-                <span>Cargando más posts...</span>
-              </div>
-            )}
-
-            {!hasMore && posts.length > 0 && (
-              <div className="loading-more" style={{ color: '#94a3b8' }}>
-                <span>No hay más posts para mostrar</span>
-              </div>
-            )}
+            {loading && <div className="loading-more"><div className="spinner"></div><span>Cargando más posts...</span></div>}
+            {!hasMore && posts.length > 0 && <div className="loading-more" style={{ color: '#94a3b8' }}><span>No hay más posts para mostrar</span></div>}
           </>
         )}
       </div>
-
-      {/* Modal Crear/Editar */}
       {showModal && (
         <div className="modal-overlay">
           <div className="modal post-modal">
-            <div className="modal-header">
-              <h3>{editingPost ? 'Editar Post Especial' : 'Nuevo Post Especial'}</h3>
-              <button className="close-btn" onClick={() => setShowModal(false)}>
-                <X size={20} />
-              </button>
-            </div>
-
+            <div className="modal-header"><h3>{editingPost ? 'Editar Post Especial' : 'Nuevo Post Especial'}</h3><button className="close-btn" onClick={() => setShowModal(false)}><X size={20} /></button></div>
             <div className="modal-body">
-              <div className="form-group">
-                <label>Título (admite HTML)</label>
-                <input
-                  type="text"
-                  value={formData.title}
-                  onChange={(e) => setFormData(prev => ({ ...prev, title: e.target.value }))}
-                  placeholder="<h2>Título del Post</h2>"
-                />
-              </div>
-
+              <div className="form-group"><label>Título (admite HTML)</label><input type="text" value={formData.title} onChange={(e) => setFormData(prev => ({ ...prev, title: e.target.value }))} placeholder="<h2>Título del Post</h2>" /></div>
               <div className="form-group">
                 <label>Contenido (admite HTML completo)</label>
-                <Editor
-                  value={formData.content}
-                  init={{
-                    height: 350,
-                    menubar: true,
-                    plugins: [
-                      'advlist', 'autolink', 'lists', 'link', 'image', 'charmap',
-                      'anchor', 'searchreplace', 'visualblocks', 'code', 'fullscreen',
-                      'insertdatetime', 'media', 'table', 'preview', 'help', 'wordcount'
-                    ],
-                    toolbar: 'undo redo | blocks | bold italic forecolor | alignleft aligncenter alignright alignjustify | bullist numlist outdent indent | link image media | code fullscreen | removeformat help',
-                    content_style: 'body { font-family:Helvetica,Arial,sans-serif; font-size:14px }'
-                  }}
-                  onEditorChange={(newContent) => {
-                    setFormData(prev => ({ ...prev, content: newContent }));
-                  }}
-                />
+                <Editor value={formData.content} init={{ height: 350, menubar: true, plugins: ['advlist','autolink','lists','link','image','charmap','anchor','searchreplace','visualblocks','code','fullscreen','insertdatetime','media','table','preview','help','wordcount'], toolbar: 'undo redo | blocks | bold italic forecolor | alignleft aligncenter alignright alignjustify | bullist numlist outdent indent | link image media | code fullscreen | removeformat help' }} onEditorChange={(newContent) => setFormData(prev => ({ ...prev, content: newContent }))} />
               </div>
-
-              <div className="form-group">
-                <label>Fecha de publicación programada (opcional)</label>
-                <input
-                  type="datetime-local"
-                  value={formData.scheduledAt}
-                  onChange={(e) => setFormData(prev => ({ ...prev, scheduledAt: e.target.value }))}
-                />
-                <small className="form-text-muted">
-                  Si no se especifica, se usará la fecha actual. Si se especifica, el post se mostrará a partir de esa fecha y hora.
-                </small>
-              </div>
-
-              <div className="form-hint">
-                💡 Puedes utilizar cualquier etiqueta HTML en ambos campos. No hay sanitización en el backend.
-              </div>
+              <div className="form-group"><label>Fecha de publicación programada (opcional)</label><input type="datetime-local" value={formData.scheduledAt} onChange={(e) => setFormData(prev => ({ ...prev, scheduledAt: e.target.value }))} /></div>
             </div>
-
-            <div className="modal-footer">
-              <button className="btn btn-secondary" onClick={() => setShowModal(false)} disabled={saving}>
-                Cancelar
-              </button>
-              <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
-                {saving ? 'Guardando...' : 'Guardar'}
-              </button>
-            </div>
+            <div className="modal-footer"><button className="btn btn-secondary" onClick={() => setShowModal(false)} disabled={saving}>Cancelar</button><button className="btn btn-primary" onClick={handleSave} disabled={saving}>{saving ? 'Guardando...' : 'Guardar'}</button></div>
           </div>
         </div>
       )}
-
-      {/* Modal Confirmar Eliminación */}
       {showDeleteConfirm && (
         <div className="modal-overlay">
           <div className="modal">
             <div className="modal-body confirm-body">
               <AlertTriangle size={48} className="warning-icon" />
               <h4>¿Estás seguro?</h4>
-              <p>
-                Vas a eliminar el post <strong dangerouslySetInnerHTML={{ __html: deletingPost?.title || '' }} />. 
-                Esta acción no se puede deshacer.
-              </p>
+              <p>Vas a eliminar el post <strong dangerouslySetInnerHTML={{ __html: deletingPost?.title || '' }} />. Esta acción no se puede deshacer.</p>
             </div>
-
-            <div className="modal-footer">
-              <button 
-                className="btn btn-secondary" 
-                onClick={() => setShowDeleteConfirm(false)}
-                disabled={saving}
-              >
-                Cancelar
-              </button>
-              <button 
-                className="btn btn-danger" 
-                onClick={handleDelete}
-                disabled={saving}
-              >
-                {saving ? 'Eliminando...' : 'Confirmar Eliminación'}
-              </button>
-            </div>
+            <div className="modal-footer"><button className="btn btn-secondary" onClick={() => setShowDeleteConfirm(false)} disabled={saving}>Cancelar</button><button className="btn btn-danger" onClick={handleDelete} disabled={saving}>{saving ? 'Eliminando...' : 'Confirmar Eliminación'}</button></div>
           </div>
         </div>
       )}

@@ -16,7 +16,6 @@ const Matches = () => {
   const [saving, setSaving] = useState(false);
   const [statusFilter, setStatusFilter] = useState<1 | 2 | 3 | undefined>(undefined);
   const [searchTerm, setSearchTerm] = useState('');
-  const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   
   const [showResultModal, setShowResultModal] = useState(false);
@@ -40,9 +39,11 @@ const Matches = () => {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  // Sentinel (centinela) para IntersectionObserver
+  // Refs estables
   const sentinelRef = useRef<HTMLDivElement>(null);
   const loadingRef = useRef(false);
+  const hasMoreRef = useRef(true);
+  const pageRef = useRef(1);
 
   const loadMatches = useCallback(async (reset: boolean = false) => {
     if (loadingRef.current) return;
@@ -52,17 +53,19 @@ const Matches = () => {
       setLoading(true);
       setError(null);
       
-      const response = await matchService.getMatches(statusFilter, searchTerm, reset ? 1 : page, 10);
+      const currentPage = reset ? 1 : pageRef.current;
+      const response = await matchService.getMatches(statusFilter, searchTerm, currentPage, 10);
       
       if (reset) {
         setMatches(response.items);
-        setPage(2);
+        pageRef.current = 2;
       } else {
         setMatches(prev => [...prev, ...response.items]);
-        setPage(prev => prev + 1);
+        pageRef.current += 1;
       }
       
       setHasMore(response.hasNextPage);
+      hasMoreRef.current = response.hasNextPage;
     } catch (err) {
       setError('No se pudieron cargar los partidos');
       console.error(err);
@@ -70,9 +73,9 @@ const Matches = () => {
       loadingRef.current = false;
       setLoading(false);
     }
-  }, [statusFilter, searchTerm, page]);
+  }, [statusFilter, searchTerm]);
 
-  // Cargar listas maestras al inicio (SIN PAGINADO - trae TODO)
+  // Cargar listas maestras al inicio
   useEffect(() => {
     const loadMasterData = async () => {
       try {
@@ -89,7 +92,7 @@ const Matches = () => {
     loadMasterData();
   }, []);
 
-  // Cargar ciudades cuando se selecciona pais (SIN PAGINADO - trae TODO)
+  // Cargar ciudades cuando se selecciona pais
   useEffect(() => {
     if (matchForm.countryId) {
       cityService.getCities(matchForm.countryId, undefined, 'name', false, 1, 9999)
@@ -101,22 +104,22 @@ const Matches = () => {
   }, [matchForm.countryId]);
 
   useEffect(() => {
+    pageRef.current = 1;
     setMatches([]);
-    setPage(1);
     setHasMore(true);
+    hasMoreRef.current = true;
     loadMatches(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statusFilter, searchTerm]);
 
-  // IntersectionObserver para scroll infinito
+  // IntersectionObserver - hasMore como dependencia para reconectar tras cada carga
   useEffect(() => {
     const sentinel = sentinelRef.current;
     if (!sentinel) return;
 
     const observer = new IntersectionObserver(
       (entries) => {
-        const entry = entries[0];
-        if (entry.isIntersecting && hasMore && !loadingRef.current) {
+        if (entries[0].isIntersecting && hasMoreRef.current && !loadingRef.current) {
           loadMatches();
         }
       },
@@ -125,21 +128,27 @@ const Matches = () => {
 
     observer.observe(sentinel);
     return () => observer.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasMore, loadMatches]);
+
+  // Auto-load cuando el contenido no desborda (ej: Imágenes con pocos items)
+  useEffect(() => {
+    if (!loading && hasMore && matches.length > 0) {
+      const container = sentinelRef.current?.parentElement;
+      if (container && container.scrollHeight <= container.clientHeight) {
+        loadMatches();
+      }
+    }
+  }, [matches, loading, hasMore, loadMatches]);
 
   const openResultModal = (match: Match) => {
     setEditingMatch(match);
-    setResultForm({
-      homeScore: match.homeScore ?? 0,
-      awayScore: match.awayScore ?? 0
-    });
+    setResultForm({ homeScore: match.homeScore ?? 0, awayScore: match.awayScore ?? 0 });
     setShowConfirmResultModal(false);
     setShowResultModal(true);
   };
 
-  const handleSaveResult = () => {
-    setShowConfirmResultModal(true);
-  };
+  const handleSaveResult = () => setShowConfirmResultModal(true);
 
   const openCreateMatchModal = () => {
     setEditMatchMode('create');
@@ -175,16 +184,7 @@ const Matches = () => {
     try {
       setSaving(true);
       setError(null);
-
-      // Convertir fecha a formato ISO String correcto
-      const payload = {
-        ...matchForm,
-        matchDate: new Date(matchForm.matchDate).toISOString()
-      };
-
-      console.log('📅 Fecha original:', matchForm.matchDate);
-      console.log('✅ Fecha convertida a ISO:', payload.matchDate);
-      
+      const payload = { ...matchForm, matchDate: new Date(matchForm.matchDate).toISOString() };
       if (editMatchMode === 'create') {
         await matchService.createMatch(payload);
         setSuccess('Partido creado correctamente');
@@ -192,16 +192,13 @@ const Matches = () => {
         await matchService.updateMatch(editingMatch.id, payload);
         setSuccess('Partido actualizado correctamente');
       }
-
       setShowMatchModal(false);
       setTimeout(() => setSuccess(null), 3000);
-      
-      // Recargar lista
+      pageRef.current = 1;
       setMatches([]);
-      setPage(1);
       setHasMore(true);
+      hasMoreRef.current = true;
       loadMatches(true);
-      
     } catch (err) {
       setError('No se pudo guardar el partido. Intentá nuevamente.');
       console.error(err);
@@ -212,24 +209,19 @@ const Matches = () => {
 
   const handleDeleteMatch = async () => {
     if (!deletingMatch) return;
-    
     try {
       setSaving(true);
       setError(null);
-      
       await matchService.deleteMatch(deletingMatch.id);
-      
       setSuccess('Partido eliminado correctamente');
       setShowDeleteConfirm(false);
       setDeletingMatch(null);
       setTimeout(() => setSuccess(null), 3000);
-      
-      // Recargar lista
+      pageRef.current = 1;
       setMatches([]);
-      setPage(1);
       setHasMore(true);
+      hasMoreRef.current = true;
       loadMatches(true);
-      
     } catch (err) {
       setError('No se pudo eliminar el partido. Intentá nuevamente.');
       console.error(err);
@@ -240,28 +232,14 @@ const Matches = () => {
 
   const confirmSaveResult = async () => {
     if (!editingMatch) return;
-    
     try {
       setSaving(true);
       setError(null);
-      
-      const payload: MatchResultPayload = {
-        homeScore: resultForm.homeScore,
-        awayScore: resultForm.awayScore
-      };
-      
+      const payload: MatchResultPayload = { homeScore: resultForm.homeScore, awayScore: resultForm.awayScore };
       await matchService.updateMatchResult(editingMatch.id, payload);
-      
-      // Actualizar el partido en la lista local
-      setMatches(prev => prev.map(m => 
-        m.id === editingMatch.id 
-          ? { ...m, ...payload, status: 3 as const } 
-          : m
-      ));
-      
+      setMatches(prev => prev.map(m => m.id === editingMatch.id ? { ...m, ...payload, status: 3 as const } : m));
       setSuccess('Resultado guardado correctamente! Los puntos ya fueron calculados.');
       setTimeout(() => setSuccess(null), 3000);
-      
       setEditingMatch(null);
       setShowResultModal(false);
       setShowConfirmResultModal(false);
@@ -284,13 +262,7 @@ const Matches = () => {
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
-    return date.toLocaleDateString('es-AR', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
+    return date.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
   };
 
   const getFlagImage = (flagUrl: string) => {
@@ -306,148 +278,68 @@ const Matches = () => {
           <h1>Gestión de Partidos</h1>
           <p>Administra los partidos del sistema y carga sus resultados</p>
         </div>
-        <button className="btn btn-primary create-btn" onClick={openCreateMatchModal}>
-          <Plus size={18} />
-          Nuevo Partido
-        </button>
+        <button className="btn btn-primary create-btn" onClick={openCreateMatchModal}><Plus size={18} /> Nuevo Partido</button>
       </div>
 
       {error && <div className="alert alert-error">{error}</div>}
       {success && <div className="alert alert-success">{success}</div>}
 
-      {/* Filtros */}
       <div className="filters-bar">
         <div className="search-input">
           <Search size={18} />
-          <input
-            type="text"
-            placeholder="Buscar por equipo..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
+          <input type="text" placeholder="Buscar por equipo..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
         </div>
-
         <div className="status-filters">
-          <button 
-            className={`filter-btn ${statusFilter === 1 ? 'active' : ''}`}
-            onClick={() => setStatusFilter(1)}
-          >
-            Próximos
-          </button>
-          <button 
-            className={`filter-btn ${statusFilter === 2 ? 'active' : ''}`}
-            onClick={() => setStatusFilter(2)}
-          >
-            En Juego
-          </button>
-          <button 
-            className={`filter-btn ${statusFilter === 3 ? 'active' : ''}`}
-            onClick={() => setStatusFilter(3)}
-          >
-            Finalizados
-          </button>
+          <button className={`filter-btn ${statusFilter === 1 ? 'active' : ''}`} onClick={() => setStatusFilter(1)}>Próximos</button>
+          <button className={`filter-btn ${statusFilter === 2 ? 'active' : ''}`} onClick={() => setStatusFilter(2)}>En Juego</button>
+          <button className={`filter-btn ${statusFilter === 3 ? 'active' : ''}`} onClick={() => setStatusFilter(3)}>Finalizados</button>
         </div>
       </div>
 
-      {/* Lista de Partidos */}
       <div className="matches-container">
         {matches.length === 0 && !loading ? (
-          <div className="empty-state">
-            <p>No se encontraron partidos</p>
-          </div>
+          <div className="empty-state"><p>No se encontraron partidos</p></div>
         ) : (
           <>
             {matches.map(match => (
               <div key={match.id} className={`match-card ${match.status === 3 ? 'finished' : ''}`}>
                 <div className="match-header">
-                  <span className={`status-badge ${getStatusBadge(match.status).class}`}>
-                    {getStatusBadge(match.status).label}
-                  </span>
+                  <span className={`status-badge ${getStatusBadge(match.status).class}`}>{getStatusBadge(match.status).label}</span>
                   <span className="match-date">{formatDate(match.matchDate)}</span>
-                  
                   <div className="card-actions">
                     {match.status === 1 && (
                       <>
-                        <button 
-                          className="icon-btn edit"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openEditMatchModal(match);
-                          }}
-                          title="Editar partido"
-                        >
-                          <Edit2 size={16} />
-                        </button>
-                        <button 
-                          className="icon-btn delete"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openDeleteModal(match);
-                          }}
-                          title="Eliminar partido"
-                        >
-                          <Trash2 size={16} />
-                        </button>
+                        <button className="icon-btn edit" onClick={(e) => { e.stopPropagation(); openEditMatchModal(match); }} title="Editar partido"><Edit2 size={16} /></button>
+                        <button className="icon-btn delete" onClick={(e) => { e.stopPropagation(); openDeleteModal(match); }} title="Eliminar partido"><Trash2 size={16} /></button>
                       </>
                     )}
-
                     {match.status === 2 && (
-                      <button 
-                        className="icon-btn edit"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openResultModal(match);
-                        }}
-                        title="Cargar resultado"
-                      >
-                        <Edit2 size={16} />
-                      </button>
+                      <button className="icon-btn edit" onClick={(e) => { e.stopPropagation(); openResultModal(match); }} title="Cargar resultado"><Edit2 size={16} /></button>
                     )}
                   </div>
                 </div>
-
                 <div className="match-teams">
                   <div className="team">
-                    <div className="team-header">
-                      <img src={getFlagImage(match.homeTeam.flagUrl)} alt={match.homeTeam.name} className="team-flag" />
-                      <span className="team-name">{match.homeTeam.name}</span>
-                    </div>
+                    <div className="team-header"><img src={getFlagImage(match.homeTeam.flagUrl)} alt={match.homeTeam.name} className="team-flag" /><span className="team-name">{match.homeTeam.name}</span></div>
                     <span className="score">{match.homeScore ?? '-'}</span>
                   </div>
-
                   <span className="separator">VS</span>
-
                   <div className="team">
-                    <div className="team-header">
-                      <span className="team-name">{match.awayTeam.name}</span>
-                      <img src={getFlagImage(match.awayTeam.flagUrl)} alt={match.awayTeam.name} className="team-flag" />
-                    </div>
+                    <div className="team-header"><span className="team-name">{match.awayTeam.name}</span><img src={getFlagImage(match.awayTeam.flagUrl)} alt={match.awayTeam.name} className="team-flag" /></div>
                     <span className="score">{match.awayScore ?? '-'}</span>
                   </div>
                 </div>
-
-                  <div className="match-footer">
-                    {match.group && <span className="group-tag">Grupo {match.group}</span>}
-                    <span className="city">{match.city.name}, {match.country.name}</span>
-                  </div>
+                <div className="match-footer">
+                  {match.group && <span className="group-tag">Grupo {match.group}</span>}
+                  <span className="city">{match.city.name}, {match.country.name}</span>
+                </div>
               </div>
             ))}
 
-            {/* Sentinel: elemento invisible al final */}
             <div ref={sentinelRef} style={{ height: 1 }} />
 
-            {loading && (
-              <div className="loading-more">
-                <div className="spinner"></div>
-                <span>Cargando más partidos...</span>
-              </div>
-            )}
-
-            {!hasMore && matches.length > 0 && (
-              <div className="loading-more" style={{ color: '#94a3b8' }}>
-                <span>No hay más partidos para mostrar</span>
-              </div>
-            )}
+            {loading && <div className="loading-more"><div className="spinner"></div><span>Cargando más partidos...</span></div>}
+            {!hasMore && matches.length > 0 && <div className="loading-more" style={{ color: '#94a3b8' }}><span>No hay más partidos para mostrar</span></div>}
           </>
         )}
       </div>
@@ -456,54 +348,25 @@ const Matches = () => {
       {showResultModal && editingMatch && (
         <div className="modal-overlay">
           <div className="modal">
-            <div className="modal-header">
-              <h3>Cargar Resultado</h3>
-              <button className="close-btn" onClick={() => setEditingMatch(null)}>
-                <X size={20} />
-              </button>
-            </div>
-
+            <div className="modal-header"><h3>Cargar Resultado</h3><button className="close-btn" onClick={() => { setEditingMatch(null); setShowResultModal(false); }}><X size={20} /></button></div>
             {!showConfirmResultModal ? (
               <>
                 <div className="modal-body">
                   <div className="result-form">
                     <div className="form-team">
                       <label>{editingMatch.homeTeam.name}</label>
-                      <input
-                        type="number"
-                        min="0"
-                        value={resultForm.homeScore}
-                        onChange={(e) => setResultForm(prev => ({
-                          ...prev,
-                          homeScore: parseInt(e.target.value) || 0
-                        }))}
-                      />
+                      <input type="number" min="0" value={resultForm.homeScore} onChange={(e) => setResultForm(prev => ({ ...prev, homeScore: parseInt(e.target.value) || 0 }))} />
                     </div>
-
                     <span className="form-separator">-</span>
-
                     <div className="form-team">
                       <label>{editingMatch.awayTeam.name}</label>
-                      <input
-                        type="number"
-                        min="0"
-                        value={resultForm.awayScore}
-                        onChange={(e) => setResultForm(prev => ({
-                          ...prev,
-                          awayScore: parseInt(e.target.value) || 0
-                        }))}
-                      />
+                      <input type="number" min="0" value={resultForm.awayScore} onChange={(e) => setResultForm(prev => ({ ...prev, awayScore: parseInt(e.target.value) || 0 }))} />
                     </div>
                   </div>
                 </div>
-
                 <div className="modal-footer">
-                  <button className="btn btn-secondary" onClick={() => setShowResultModal(false)}>
-                    Cancelar
-                  </button>
-                  <button className="btn btn-primary" onClick={handleSaveResult}>
-                    Guardar Resultado
-                  </button>
+                  <button className="btn btn-secondary" onClick={() => { setEditingMatch(null); setShowResultModal(false); }}>Cancelar</button>
+                  <button className="btn btn-primary" onClick={handleSaveResult}>Guardar Resultado</button>
                 </div>
               </>
             ) : (
@@ -511,34 +374,13 @@ const Matches = () => {
                 <div className="modal-body confirm-body">
                   <AlertTriangle size={48} className="warning-icon" />
                   <h4>¿Estás seguro?</h4>
-                  <p>
-                    Una vez que guardes este resultado, el partido se marcará como <strong>Finalizado</strong> 
-                    y se calcularán automáticamente los puntos para todos los usuarios.
-                  </p>
+                  <p>Una vez que guardes este resultado, el partido se marcará como <strong>Finalizado</strong> y se calcularán automáticamente los puntos para todos los usuarios.</p>
                   <p className="warning-text">Esta acción no se puede deshacer.</p>
-                  
-                  <div className="confirm-result">
-                    <strong>{editingMatch.homeTeam.name} {resultForm.homeScore}</strong>
-                    <span> - </span>
-                    <strong>{resultForm.awayScore} {editingMatch.awayTeam.name}</strong>
-                  </div>
+                  <div className="confirm-result"><strong>{editingMatch.homeTeam.name} {resultForm.homeScore}</strong><span> - </span><strong>{resultForm.awayScore} {editingMatch.awayTeam.name}</strong></div>
                 </div>
-
                 <div className="modal-footer">
-                  <button 
-                    className="btn btn-secondary" 
-                    onClick={() => setShowConfirmResultModal(false)}
-                    disabled={saving}
-                  >
-                    Volver
-                  </button>
-                  <button 
-                    className="btn btn-danger" 
-                    onClick={confirmSaveResult}
-                    disabled={saving}
-                  >
-                    {saving ? 'Guardando...' : 'Confirmar y Guardar'}
-                  </button>
+                  <button className="btn btn-secondary" onClick={() => setShowConfirmResultModal(false)} disabled={saving}>Volver</button>
+                  <button className="btn btn-danger" onClick={confirmSaveResult} disabled={saving}>{saving ? 'Guardando...' : 'Confirmar y Guardar'}</button>
                 </div>
               </>
             )}
@@ -550,84 +392,17 @@ const Matches = () => {
       {showMatchModal && (
         <div className="modal-overlay">
           <div className="modal">
-            <div className="modal-header">
-              <h3>{editMatchMode === 'create' ? 'Nuevo Partido' : 'Editar Partido'}</h3>
-              <button className="close-btn" onClick={() => setShowMatchModal(false)}>
-                <X size={20} />
-              </button>
-            </div>
-
+            <div className="modal-header"><h3>{editMatchMode === 'create' ? 'Nuevo Partido' : 'Editar Partido'}</h3><button className="close-btn" onClick={() => setShowMatchModal(false)}><X size={20} /></button></div>
             <div className="modal-body">
               <div className="form-grid">
-                <div className="form-group">
-                  <label>Equipo Local</label>
-                  <select
-                    value={matchForm.homeTeamId}
-                    onChange={(e) => setMatchForm(prev => ({ ...prev, homeTeamId: e.target.value }))}
-                  >
-                    {teams.map(team => (
-                      <option key={team.id} value={team.id}>{team.name}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="form-group">
-                  <label>Equipo Visitante</label>
-                  <select
-                    value={matchForm.awayTeamId}
-                    onChange={(e) => setMatchForm(prev => ({ ...prev, awayTeamId: e.target.value }))}
-                  >
-                    {teams.map(team => (
-                      <option key={team.id} value={team.id}>{team.name}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="form-group">
-                  <label>Fecha y Hora</label>
-                  <input
-                    type="datetime-local"
-                    value={matchForm.matchDate}
-                    onChange={(e) => setMatchForm(prev => ({ ...prev, matchDate: e.target.value }))}
-                  />
-                </div>
-
-                <div className="form-group">
-                  <label>País</label>
-                  <select
-                    value={matchForm.countryId}
-                    onChange={(e) => setMatchForm(prev => ({ ...prev, countryId: e.target.value, cityId: '' }))}
-                  >
-                    {countries.map(country => (
-                      <option key={country.id} value={country.id}>{country.name}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="form-group full-width">
-                  <label>Ciudad</label>
-                  <select
-                    value={matchForm.cityId}
-                    onChange={(e) => setMatchForm(prev => ({ ...prev, cityId: e.target.value }))}
-                    disabled={cities.length === 0}
-                  >
-                    <option value="">Seleccionar ciudad</option>
-                    {cities.map(city => (
-                      <option key={city.id} value={city.id}>{city.name}</option>
-                    ))}
-                  </select>
-                </div>
+                <div className="form-group"><label>Equipo Local</label><select value={matchForm.homeTeamId} onChange={(e) => setMatchForm(prev => ({ ...prev, homeTeamId: e.target.value }))}>{teams.map(team => <option key={team.id} value={team.id}>{team.name}</option>)}</select></div>
+                <div className="form-group"><label>Equipo Visitante</label><select value={matchForm.awayTeamId} onChange={(e) => setMatchForm(prev => ({ ...prev, awayTeamId: e.target.value }))}>{teams.map(team => <option key={team.id} value={team.id}>{team.name}</option>)}</select></div>
+                <div className="form-group"><label>Fecha y Hora</label><input type="datetime-local" value={matchForm.matchDate} onChange={(e) => setMatchForm(prev => ({ ...prev, matchDate: e.target.value }))} /></div>
+                <div className="form-group"><label>País</label><select value={matchForm.countryId} onChange={(e) => setMatchForm(prev => ({ ...prev, countryId: e.target.value, cityId: '' }))}>{countries.map(country => <option key={country.id} value={country.id}>{country.name}</option>)}</select></div>
+                <div className="form-group full-width"><label>Ciudad</label><select value={matchForm.cityId} onChange={(e) => setMatchForm(prev => ({ ...prev, cityId: e.target.value }))} disabled={cities.length === 0}><option value="">Seleccionar ciudad</option>{cities.map(city => <option key={city.id} value={city.id}>{city.name}</option>)}</select></div>
               </div>
             </div>
-
-            <div className="modal-footer">
-              <button className="btn btn-secondary" onClick={() => setShowMatchModal(false)} disabled={saving}>
-                Cancelar
-              </button>
-              <button className="btn btn-primary" onClick={handleSaveMatch} disabled={saving}>
-                {saving ? 'Guardando...' : 'Guardar'}
-              </button>
-            </div>
+            <div className="modal-footer"><button className="btn btn-secondary" onClick={() => setShowMatchModal(false)} disabled={saving}>Cancelar</button><button className="btn btn-primary" onClick={handleSaveMatch} disabled={saving}>{saving ? 'Guardando...' : 'Guardar'}</button></div>
           </div>
         </div>
       )}
@@ -639,28 +414,9 @@ const Matches = () => {
             <div className="modal-body confirm-body">
               <AlertTriangle size={48} className="warning-icon" />
               <h4>¿Estás seguro?</h4>
-              <p>
-                Vas a eliminar el partido <strong>{deletingMatch?.homeTeam.name} vs {deletingMatch?.awayTeam.name}</strong>. 
-                Esta acción no se puede deshacer.
-              </p>
+              <p>Vas a eliminar el partido <strong>{deletingMatch?.homeTeam.name} vs {deletingMatch?.awayTeam.name}</strong>. Esta acción no se puede deshacer.</p>
             </div>
-
-            <div className="modal-footer">
-              <button 
-                className="btn btn-secondary" 
-                onClick={() => setShowDeleteConfirm(false)}
-                disabled={saving}
-              >
-                Cancelar
-              </button>
-              <button 
-                className="btn btn-danger" 
-                onClick={handleDeleteMatch}
-                disabled={saving}
-              >
-                {saving ? 'Eliminando...' : 'Confirmar Eliminación'}
-              </button>
-            </div>
+            <div className="modal-footer"><button className="btn btn-secondary" onClick={() => setShowDeleteConfirm(false)} disabled={saving}>Cancelar</button><button className="btn btn-danger" onClick={handleDeleteMatch} disabled={saving}>{saving ? 'Eliminando...' : 'Confirmar Eliminación'}</button></div>
           </div>
         </div>
       )}
