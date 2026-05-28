@@ -13,13 +13,7 @@ const Cities = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
-
-  // Refs para evitar stale closures en scroll infinito
-  const pageRef = useRef(page);
-  const loadingRef = useRef(loading);
-  useEffect(() => { pageRef.current = page; }, [page]);
-  useEffect(() => { loadingRef.current = loading; }, [loading]);
-   
+  
   const [showModal, setShowModal] = useState(false);
   const [editingCity, setEditingCity] = useState<City | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -32,6 +26,10 @@ const Cities = () => {
 
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+
+  // Sentinel (centinela) para IntersectionObserver
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const loadingRef = useRef(false);
 
   // Cargar lista de paises al inicio
   useEffect(() => {
@@ -57,9 +55,8 @@ const Cities = () => {
       loadingRef.current = true;
       setLoading(true);
       setError(null);
-      const currentPage = reset ? 1 : pageRef.current;
       
-      const response = await cityService.getCities(selectedCountryId, searchTerm, 'name', false, currentPage, 10);
+      const response = await cityService.getCities(selectedCountryId, searchTerm, 'name', false, reset ? 1 : page, 10);
       
       if (reset) {
         setCities(response.items);
@@ -77,7 +74,7 @@ const Cities = () => {
       loadingRef.current = false;
       setLoading(false);
     }
-  }, [selectedCountryId, searchTerm]);
+  }, [selectedCountryId, searchTerm, page]);
 
   useEffect(() => {
     if (selectedCountryId) {
@@ -86,14 +83,26 @@ const Cities = () => {
       setHasMore(true);
       loadCities(true);
     }
-  }, [selectedCountryId, searchTerm]);
+  }, [selectedCountryId, searchTerm]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
-    if (scrollHeight - scrollTop <= clientHeight + 100 && hasMore && !loadingRef.current) {
-      loadCities();
-    }
-  };
+  // IntersectionObserver para scroll infinito
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (entry.isIntersecting && hasMore && !loadingRef.current) {
+          loadCities();
+        }
+      },
+      { rootMargin: '100px' }
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasMore, loadCities]);
 
   const openCreateModal = () => {
     setEditingCity(null);
@@ -228,7 +237,7 @@ const Cities = () => {
       </div>
 
       {/* Tabla de Ciudades */}
-      <div className="cities-container" onScroll={handleScroll}>
+      <div className="cities-container">
         <table className="cities-table">
           <thead>
             <tr>
@@ -258,10 +267,19 @@ const Cities = () => {
           </tbody>
         </table>
 
+        {/* Sentinel: elemento invisible al final que dispara la carga de más datos */}
+        <div ref={sentinelRef} style={{ height: 1 }} />
+
         {loading && (
           <div className="loading-more">
             <div className="spinner"></div>
             <span>Cargando más ciudades...</span>
+          </div>
+        )}
+
+        {!hasMore && cities.length > 0 && (
+          <div className="loading-more" style={{ color: '#94a3b8' }}>
+            <span>No hay más ciudades para mostrar</span>
           </div>
         )}
 

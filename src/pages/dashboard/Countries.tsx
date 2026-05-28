@@ -10,13 +10,7 @@ const Countries = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
-
-  // Refs para evitar stale closures en scroll infinito
-  const pageRef = useRef(page);
-  const loadingRef = useRef(loading);
-  useEffect(() => { pageRef.current = page; }, [page]);
-  useEffect(() => { loadingRef.current = loading; }, [loading]);
-   
+  
   const [showModal, setShowModal] = useState(false);
   const [editingCountry, setEditingCountry] = useState<Country | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -34,6 +28,10 @@ const Countries = () => {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
+  // Sentinel (centinela) para IntersectionObserver - detecta cuando llegamos al final
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const loadingRef = useRef(false);
+
   const loadCountries = useCallback(async (reset: boolean = false) => {
     if (loadingRef.current) return;
     
@@ -41,9 +39,8 @@ const Countries = () => {
       loadingRef.current = true;
       setLoading(true);
       setError(null);
-      const currentPage = reset ? 1 : pageRef.current;
       
-      const response = await countryService.getCountries(searchTerm, 'name', false, currentPage, 10);
+      const response = await countryService.getCountries(searchTerm, 'name', false, reset ? 1 : page, 10);
       
       if (reset) {
         setCountries(response.items);
@@ -61,21 +58,34 @@ const Countries = () => {
       loadingRef.current = false;
       setLoading(false);
     }
-  }, [searchTerm]);
+  }, [searchTerm, page]);
 
   useEffect(() => {
     setCountries([]);
     setPage(1);
     setHasMore(true);
     loadCountries(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchTerm]);
 
-  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
-    if (scrollHeight - scrollTop <= clientHeight + 100 && hasMore && !loadingRef.current) {
-      loadCountries();
-    }
-  };
+  // IntersectionObserver para scroll infinito
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (entry.isIntersecting && hasMore && !loadingRef.current) {
+          loadCountries();
+        }
+      },
+      { rootMargin: '100px' }
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasMore, loadCountries]);
 
   const openCreateModal = () => {
     setEditingCountry(null);
@@ -214,7 +224,7 @@ const Countries = () => {
       </div>
 
       {/* Tabla de Paises */}
-      <div className="countries-container" onScroll={handleScroll}>
+      <div className="countries-container">
         <table className="countries-table">
           <thead>
             <tr>
@@ -251,10 +261,19 @@ const Countries = () => {
           </tbody>
         </table>
 
+        {/* Sentinel: elemento invisible al final que dispara la carga de más datos */}
+        <div ref={sentinelRef} style={{ height: 1 }} />
+
         {loading && (
           <div className="loading-more">
             <div className="spinner"></div>
             <span>Cargando más paises...</span>
+          </div>
+        )}
+
+        {!hasMore && countries.length > 0 && (
+          <div className="loading-more" style={{ color: '#94a3b8' }}>
+            <span>No hay más paises para mostrar</span>
           </div>
         )}
 

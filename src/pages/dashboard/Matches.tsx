@@ -18,13 +18,7 @@ const Matches = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
-
-  // Refs para evitar stale closures en scroll infinito
-  const pageRef = useRef(page);
-  const loadingRef = useRef(loading);
-  useEffect(() => { pageRef.current = page; }, [page]);
-  useEffect(() => { loadingRef.current = loading; }, [loading]);
-   
+  
   const [showResultModal, setShowResultModal] = useState(false);
   const [editingMatch, setEditingMatch] = useState<Match | null>(null);
   const [resultForm, setResultForm] = useState({ homeScore: 0, awayScore: 0 });
@@ -46,6 +40,10 @@ const Matches = () => {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
+  // Sentinel (centinela) para IntersectionObserver
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const loadingRef = useRef(false);
+
   const loadMatches = useCallback(async (reset: boolean = false) => {
     if (loadingRef.current) return;
     
@@ -53,9 +51,8 @@ const Matches = () => {
       loadingRef.current = true;
       setLoading(true);
       setError(null);
-      const currentPage = reset ? 1 : pageRef.current;
       
-      const response = await matchService.getMatches(statusFilter, searchTerm, currentPage, 10);
+      const response = await matchService.getMatches(statusFilter, searchTerm, reset ? 1 : page, 10);
       
       if (reset) {
         setMatches(response.items);
@@ -73,7 +70,7 @@ const Matches = () => {
       loadingRef.current = false;
       setLoading(false);
     }
-  }, [statusFilter, searchTerm]);
+  }, [statusFilter, searchTerm, page]);
 
   // Cargar listas maestras al inicio (SIN PAGINADO - trae TODO)
   useEffect(() => {
@@ -108,14 +105,27 @@ const Matches = () => {
     setPage(1);
     setHasMore(true);
     loadMatches(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statusFilter, searchTerm]);
 
-  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
-    if (scrollHeight - scrollTop <= clientHeight + 100 && hasMore && !loadingRef.current) {
-      loadMatches();
-    }
-  };
+  // IntersectionObserver para scroll infinito
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (entry.isIntersecting && hasMore && !loadingRef.current) {
+          loadMatches();
+        }
+      },
+      { rootMargin: '100px' }
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasMore, loadMatches]);
 
   const openResultModal = (match: Match) => {
     setEditingMatch(match);
@@ -193,7 +203,7 @@ const Matches = () => {
       loadMatches(true);
       
     } catch (err) {
-      setError('No se pudo guardar el partido. Intentรก nuevamente.');
+      setError('No se pudo guardar el partido. Intentá nuevamente.');
       console.error(err);
     } finally {
       setSaving(false);
@@ -221,7 +231,7 @@ const Matches = () => {
       loadMatches(true);
       
     } catch (err) {
-      setError('No se pudo eliminar el partido. Intentรก nuevamente.');
+      setError('No se pudo eliminar el partido. Intentá nuevamente.');
       console.error(err);
     } finally {
       setSaving(false);
@@ -256,7 +266,7 @@ const Matches = () => {
       setShowResultModal(false);
       setShowConfirmResultModal(false);
     } catch (err) {
-      setError('No se pudo guardar el resultado. Intentรก nuevamente.');
+      setError('No se pudo guardar el resultado. Intentá nuevamente.');
       console.error(err);
     } finally {
       setSaving(false);
@@ -265,7 +275,7 @@ const Matches = () => {
 
   const getStatusBadge = (status: number) => {
     const statuses = {
-      1: { label: 'Prรณximo', class: 'status-upcoming' },
+      1: { label: 'Próximo', class: 'status-upcoming' },
       2: { label: 'En Juego', class: 'status-live' },
       3: { label: 'Finalizado', class: 'status-finished' }
     };
@@ -340,7 +350,7 @@ const Matches = () => {
       </div>
 
       {/* Lista de Partidos */}
-      <div className="matches-container" onScroll={handleScroll}>
+      <div className="matches-container">
         {matches.length === 0 && !loading ? (
           <div className="empty-state">
             <p>No se encontraron partidos</p>
@@ -423,10 +433,19 @@ const Matches = () => {
               </div>
             ))}
 
+            {/* Sentinel: elemento invisible al final */}
+            <div ref={sentinelRef} style={{ height: 1 }} />
+
             {loading && (
               <div className="loading-more">
                 <div className="spinner"></div>
-                <span>Cargando mรกs partidos...</span>
+                <span>Cargando más partidos...</span>
+              </div>
+            )}
+
+            {!hasMore && matches.length > 0 && (
+              <div className="loading-more" style={{ color: '#94a3b8' }}>
+                <span>No hay más partidos para mostrar</span>
               </div>
             )}
           </>
@@ -491,12 +510,12 @@ const Matches = () => {
               <>
                 <div className="modal-body confirm-body">
                   <AlertTriangle size={48} className="warning-icon" />
-                  <h4>ยฟEstรกs seguro?</h4>
+                  <h4>¿Estás seguro?</h4>
                   <p>
-                    Una vez que guardes este resultado, el partido se marcarรก como <strong>Finalizado</strong> 
-                    y se calcularรกn automรกticamente los puntos para todos los usuarios.
+                    Una vez que guardes este resultado, el partido se marcará como <strong>Finalizado</strong> 
+                    y se calcularán automáticamente los puntos para todos los usuarios.
                   </p>
-                  <p className="warning-text">Esta acciรณn no se puede deshacer.</p>
+                  <p className="warning-text">Esta acción no se puede deshacer.</p>
                   
                   <div className="confirm-result">
                     <strong>{editingMatch.homeTeam.name} {resultForm.homeScore}</strong>

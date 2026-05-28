@@ -12,13 +12,6 @@ const SpecialPosts = () => {
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
 
-  // ✅ Solución oficial React para acceder al estado actual sin dependencias
-  // Usamos una ref que siempre contiene el valor actualizado de page
-  const pageRef = useRef(page);
-  useEffect(() => {
-    pageRef.current = page;
-  }, [page]);
-  
   const [showModal, setShowModal] = useState(false);
   const [editingPost, setEditingPost] = useState<SpecialPost | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -33,8 +26,9 @@ const SpecialPosts = () => {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  const loadingRef = useRef(loading);
-  useEffect(() => { loadingRef.current = loading; }, [loading]);
+  // Sentinel (centinela) para IntersectionObserver
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const loadingRef = useRef(false);
 
   const loadPosts = useCallback(async (reset: boolean = false) => {
     if (loadingRef.current) return;
@@ -44,8 +38,7 @@ const SpecialPosts = () => {
       setLoading(true);
       setError(null);
       
-      const currentPage = reset ? 1 : pageRef.current;      
-      const response = await specialPostService.getSpecialPosts(currentPage, 10, searchTerm);
+      const response = await specialPostService.getSpecialPosts(reset ? 1 : page, 10, searchTerm);
       
       if (reset) {
         setPosts(response.posts);
@@ -63,7 +56,7 @@ const SpecialPosts = () => {
       loadingRef.current = false;
       setLoading(false);
     }
-  }, [searchTerm]);
+  }, [searchTerm, page]);
 
   useEffect(() => {
     setPosts([]);
@@ -73,12 +66,24 @@ const SpecialPosts = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchTerm, loadPosts]);
 
-  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
-    if (scrollHeight - scrollTop <= clientHeight + 100 && hasMore && !loadingRef.current) {
-      loadPosts();
-    }
-  };
+  // IntersectionObserver para scroll infinito
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (entry.isIntersecting && hasMore && !loadingRef.current) {
+          loadPosts();
+        }
+      },
+      { rootMargin: '100px' }
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasMore, loadPosts]);
 
   const openCreateModal = () => {
     setEditingPost(null);
@@ -220,7 +225,7 @@ const SpecialPosts = () => {
       </div>
 
       {/* Lista de Posts */}
-      <div className="posts-container" onScroll={handleScroll}>
+      <div className="posts-container">
         {posts.length === 0 && !loading ? (
           <div className="empty-state">
             <FileText size={48} />
@@ -256,10 +261,19 @@ const SpecialPosts = () => {
               </div>
             ))}
 
+            {/* Sentinel: elemento invisible al final */}
+            <div ref={sentinelRef} style={{ height: 1 }} />
+
             {loading && (
               <div className="loading-more">
                 <div className="spinner"></div>
                 <span>Cargando más posts...</span>
+              </div>
+            )}
+
+            {!hasMore && posts.length > 0 && (
+              <div className="loading-more" style={{ color: '#94a3b8' }}>
+                <span>No hay más posts para mostrar</span>
               </div>
             )}
           </>

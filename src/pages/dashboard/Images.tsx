@@ -4,8 +4,6 @@ import { imageService, type Image } from '../../services/image.service';
 import { API_CONFIG } from '../../config/api';
 import './Images.css';
 
-//const API_BASE_URL = import.meta.env.VITE_API_BASE_URL.replace('/api', '');
-
 const ImagesPage = () => {
   const [images, setImages] = useState<Image[]>([]);
   const [loading, setLoading] = useState(false);
@@ -14,11 +12,6 @@ const ImagesPage = () => {
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
 
-  const pageRef = useRef(page);
-  useEffect(() => {
-    pageRef.current = page;
-  }, [page]);
-  
   const [showModal, setShowModal] = useState(false);
   const [editingImage, setEditingImage] = useState<Image | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -29,8 +22,9 @@ const ImagesPage = () => {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  const loadingRef = useRef(loading);
-  useEffect(() => { loadingRef.current = loading; }, [loading]);
+  // Sentinel (centinela) para IntersectionObserver
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const loadingRef = useRef(false);
 
   const loadImages = useCallback(async (reset: boolean = false) => {
     if (loadingRef.current) return;
@@ -40,8 +34,7 @@ const ImagesPage = () => {
       setLoading(true);
       setError(null);
       
-      const currentPage = reset ? 1 : pageRef.current;      
-      const response = await imageService.getImages(currentPage, 10, searchTerm);
+      const response = await imageService.getImages(reset ? 1 : page, 10, searchTerm);
       
       if (reset) {
         setImages(response.items);
@@ -59,7 +52,7 @@ const ImagesPage = () => {
       loadingRef.current = false;
       setLoading(false);
     }
-  }, [searchTerm]);
+  }, [searchTerm, page]);
 
   useEffect(() => {
     setImages([]);
@@ -69,12 +62,24 @@ const ImagesPage = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchTerm, loadImages]);
 
-  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
-    if (scrollHeight - scrollTop <= clientHeight + 100 && hasMore && !loadingRef.current) {
-      loadImages();
-    }
-  };
+  // IntersectionObserver para scroll infinito
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (entry.isIntersecting && hasMore && !loadingRef.current) {
+          loadImages();
+        }
+      },
+      { rootMargin: '100px' }
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasMore, loadImages]);
 
   const openUploadModal = () => {
     setEditingImage(null);
@@ -226,7 +231,7 @@ const ImagesPage = () => {
       </div>
 
       {/* Lista de Imágenes */}
-      <div className="posts-container" onScroll={handleScroll}>
+      <div className="posts-container">
         {images.length === 0 && !loading ? (
           <div className="empty-state">
             <ImageIcon size={48} />
@@ -267,10 +272,19 @@ const ImagesPage = () => {
               ))}
             </div>
 
+            {/* Sentinel: elemento invisible al final */}
+            <div ref={sentinelRef} style={{ height: 1 }} />
+
             {loading && (
               <div className="loading-more">
                 <div className="spinner"></div>
                 <span>Cargando más imágenes...</span>
+              </div>
+            )}
+
+            {!hasMore && images.length > 0 && (
+              <div className="loading-more" style={{ color: '#94a3b8' }}>
+                <span>No hay más imágenes para mostrar</span>
               </div>
             )}
           </>

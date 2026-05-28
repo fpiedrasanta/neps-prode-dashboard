@@ -29,6 +29,10 @@ const Teams = () => {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
+  // Sentinel (centinela) para IntersectionObserver
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const loadingRef = useRef(false);
+
   // Cargar lista de paises al inicio
   useEffect(() => {
     const loadCountries = async () => {
@@ -46,14 +50,14 @@ const Teams = () => {
   }, []);
 
   const loadTeams = useCallback(async (reset: boolean = false) => {
-    if (loading) return;
+    if (loadingRef.current) return;
     
     try {
+      loadingRef.current = true;
       setLoading(true);
       setError(null);
-      const currentPage = reset ? 1 : page;
       
-      const response = await teamService.getTeams(searchTerm, 'name', false, currentPage, 10);
+      const response = await teamService.getTeams(searchTerm, 'name', false, reset ? 1 : page, 10);
       
       if (reset) {
         setTeams(response.items);
@@ -68,23 +72,37 @@ const Teams = () => {
       setError('No se pudieron cargar los equipos');
       console.error(err);
     } finally {
+      loadingRef.current = false;
       setLoading(false);
     }
-  }, [searchTerm, page, loading]);
+  }, [searchTerm, page]);
 
   useEffect(() => {
     setTeams([]);
     setPage(1);
     setHasMore(true);
     loadTeams(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchTerm]);
 
-  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
-    if (scrollHeight - scrollTop <= clientHeight + 100 && hasMore && !loading) {
-      loadTeams();
-    }
-  };
+  // IntersectionObserver para scroll infinito
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (entry.isIntersecting && hasMore && !loadingRef.current) {
+          loadTeams();
+        }
+      },
+      { rootMargin: '100px' }
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasMore, loadTeams]);
 
   const openCreateModal = () => {
     setEditingTeam(null);
@@ -219,7 +237,7 @@ const Teams = () => {
       </div>
 
       {/* Tabla de Equipos */}
-      <div className="teams-container" onScroll={handleScroll}>
+      <div className="teams-container">
         <table className="teams-table">
           <thead>
             <tr>
@@ -254,10 +272,19 @@ const Teams = () => {
           </tbody>
         </table>
 
+        {/* Sentinel: elemento invisible al final que dispara la carga de más datos */}
+        <div ref={sentinelRef} style={{ height: 1 }} />
+
         {loading && (
           <div className="loading-more">
             <div className="spinner"></div>
             <span>Cargando más equipos...</span>
+          </div>
+        )}
+
+        {!hasMore && teams.length > 0 && (
+          <div className="loading-more" style={{ color: '#94a3b8' }}>
+            <span>No hay más equipos para mostrar</span>
           </div>
         )}
 
