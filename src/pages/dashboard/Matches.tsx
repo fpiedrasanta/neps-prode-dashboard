@@ -35,6 +35,7 @@ const Matches = () => {
 
   const sentinelRef = useRef<HTMLDivElement>(null);
   const loadingRef = useRef(false);
+  const hasMoreRef = useRef(true);
 
   const loadMatches = useCallback(async (reset: boolean = false) => {
     if (loadingRef.current) return;
@@ -44,6 +45,7 @@ const Matches = () => {
       if (reset) { setMatches(response.items); setPage(2); }
       else { setMatches(prev => [...prev, ...response.items]); setPage(prev => prev + 1); }
       setHasMore(response.hasNextPage);
+      hasMoreRef.current = response.hasNextPage;
     } catch (err) { setError('No se pudieron cargar los partidos'); console.error(err); }
     finally { loadingRef.current = false; setLoading(false); }
   }, [statusFilter, searchTerm, page]);
@@ -69,22 +71,28 @@ const Matches = () => {
   }, [matchForm.countryId]);
 
   useEffect(() => {
-    setMatches([]); setPage(1); setHasMore(true); loadMatches(true);
+    setMatches([]); setPage(1); setHasMore(true); hasMoreRef.current = true; loadMatches(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statusFilter, searchTerm]);
+
+  // Ref para que el observer siempre llame la última versión de loadMatches
+  const loadMatchesRef = useRef(loadMatches);
+  useEffect(() => { loadMatchesRef.current = loadMatches; }, [loadMatches]);
 
   useEffect(() => {
     const sentinel = sentinelRef.current;
     if (!sentinel) return;
     const observer = new IntersectionObserver((entries) => {
-      if (entries[0].isIntersecting && hasMore && !loadingRef.current) loadMatches();
+      if (entries[0].isIntersecting && hasMoreRef.current && !loadingRef.current) {
+        loadMatchesRef.current();
+      }
     }, { rootMargin: '100px' });
     observer.observe(sentinel);
     return () => observer.disconnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasMore, loadMatches]);
+  }, [hasMore, statusFilter, searchTerm]);
 
-  const reloadList = () => { setPage(1); setMatches([]); setHasMore(true); loadMatches(true); };
+  const reloadList = () => { setPage(1); setMatches([]); setHasMore(true); hasMoreRef.current = true; loadMatches(true); };
 
   const statusLabel: Record<number, string> = { 1: 'Próximo', 2: 'En Juego', 3: 'Finalizado' };
   const statusClass: Record<number, string> = { 1: 'status-upcoming', 2: 'status-live', 3: 'status-finished' };
@@ -144,7 +152,7 @@ const Matches = () => {
             <div className="modal-footer"><button className="btn btn-secondary" onClick={()=>{setEditingMatch(null);setShowResultModal(false);}}>Cancelar</button><button className="btn btn-primary" onClick={()=>setShowConfirmResultModal(true)}>Guardar</button></div></>
           ) : (
             <><div className="modal-body confirm-body"><AlertTriangle size={48} className="warning-icon" /><h4>¿Estás seguro?</h4><p>El partido se marcará como Finalizado y se calcularán los puntos.</p><p className="warning-text">No se puede deshacer.</p><div className="confirm-result"><strong>{editingMatch.homeTeam.name} {resultForm.homeScore}</strong><span> - </span><strong>{resultForm.awayScore} {editingMatch.awayTeam.name}</strong></div></div>
-            <div className="modal-footer"><button className="btn btn-secondary" onClick={()=>setShowConfirmResultModal(false)} disabled={saving}>Volver</button><button className="btn btn-danger" onClick={async()=>{if(!editingMatch)return;try{setSaving(true);setError(null);await matchService.updateMatchResult(editingMatch.id,{homeScore:resultForm.homeScore,awayScore:resultForm.awayScore});setMatches(prev=>prev.map(m=>m.id===editingMatch.id?{...m,homeScore:resultForm.homeScore,awayScore:resultForm.awayScore,status:3 as const}:m));setSuccess('Resultado guardado!');setTimeout(()=>setSuccess(null),3000);setEditingMatch(null);setShowResultModal(false);setShowConfirmResultModal(false);}catch(_err){setError('Error al guardar');}finally{setSaving(false);}}} disabled={saving}>{saving?'Guardando...':'Confirmar'}</button></div></>
+            <div className="modal-footer"><button className="btn btn-secondary" onClick={()=>setShowConfirmResultModal(false)} disabled={saving}>Volver</button><button className="btn btn-danger" onClick={async()=>{if(!editingMatch)return;try{setSaving(true);setError(null);await matchService.updateMatchResult(editingMatch.id,{homeScore:resultForm.homeScore,awayScore:resultForm.awayScore});setMatches(prev=>prev.map(m=>m.id===editingMatch.id?{...m,homeScore:resultForm.homeScore,awayScore:resultForm.awayScore,status:3 as const}:m));setSuccess('Resultado guardado!');setTimeout(()=>setSuccess(null),3000);setEditingMatch(null);setShowResultModal(false);setShowConfirmResultModal(false);}catch(err){setError('Error al guardar');console.error(err);}finally{setSaving(false);}}} disabled={saving}>{saving?'Guardando...':'Confirmar'}</button></div></>
           )}
         </div></div>
       )}
@@ -163,7 +171,7 @@ const Matches = () => {
       )}
       {showDeleteConfirm && (
         <div className="modal-overlay"><div className="modal"><div className="modal-body confirm-body"><AlertTriangle size={48} className="warning-icon" /><h4>¿Estás seguro?</h4><p>Vas a eliminar <strong>{deletingMatch?.homeTeam.name} vs {deletingMatch?.awayTeam.name}</strong></p></div>
-          <div className="modal-footer"><button className="btn btn-secondary" onClick={()=>setShowDeleteConfirm(false)} disabled={saving}>Cancelar</button><button className="btn btn-danger" onClick={async()=>{if(!deletingMatch)return;try{setSaving(true);setError(null);await matchService.deleteMatch(deletingMatch.id);setSuccess('Partido eliminado');setShowDeleteConfirm(false);setDeletingMatch(null);setTimeout(()=>setSuccess(null),3000);reloadList();}catch(_err){setError('Error al eliminar');}finally{setSaving(false);}}} disabled={saving}>{saving?'Eliminando...':'Eliminar'}</button></div>
+          <div className="modal-footer"><button className="btn btn-secondary" onClick={()=>setShowDeleteConfirm(false)} disabled={saving}>Cancelar</button><button className="btn btn-danger" onClick={async()=>{if(!deletingMatch)return;try{setSaving(true);setError(null);await matchService.deleteMatch(deletingMatch.id);setSuccess('Partido eliminado');setShowDeleteConfirm(false);setDeletingMatch(null);setTimeout(()=>setSuccess(null),3000);reloadList();}catch{setError('Error al eliminar');}finally{setSaving(false);}}} disabled={saving}>{saving?'Eliminando...':'Eliminar'}</button></div>
         </div></div>
       )}
     </div>

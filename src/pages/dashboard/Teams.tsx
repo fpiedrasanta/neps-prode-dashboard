@@ -24,6 +24,7 @@ const Teams = () => {
 
   const sentinelRef = useRef<HTMLDivElement>(null);
   const loadingRef = useRef(false);
+  const hasMoreRef = useRef(true);
 
   useEffect(() => {
     const loadCountries = async () => {
@@ -44,27 +45,34 @@ const Teams = () => {
       if (reset) { setTeams(response.items); setPage(2); }
       else { setTeams(prev => [...prev, ...response.items]); setPage(prev => prev + 1); }
       setHasMore(response.hasNextPage);
+      hasMoreRef.current = response.hasNextPage;
     } catch (err) { setError('No se pudieron cargar los equipos'); console.error(err); }
     finally { loadingRef.current = false; setLoading(false); }
   }, [searchTerm, page]);
 
   useEffect(() => {
-    setTeams([]); setPage(1); setHasMore(true); loadTeams(true);
+    setTeams([]); setPage(1); setHasMore(true); hasMoreRef.current = true; loadTeams(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchTerm]);
+
+  // Ref para que el observer siempre llame la última versión de loadTeams
+  const loadTeamsRef = useRef(loadTeams);
+  useEffect(() => { loadTeamsRef.current = loadTeams; }, [loadTeams]);
 
   useEffect(() => {
     const sentinel = sentinelRef.current;
     if (!sentinel) return;
     const observer = new IntersectionObserver((entries) => {
-      if (entries[0].isIntersecting && hasMore && !loadingRef.current) loadTeams();
+      if (entries[0].isIntersecting && hasMoreRef.current && !loadingRef.current) {
+        loadTeamsRef.current();
+      }
     }, { rootMargin: '100px' });
     observer.observe(sentinel);
     return () => observer.disconnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasMore, loadTeams]);
+  }, [hasMore, searchTerm]);
 
-  const reloadList = () => { setPage(1); setTeams([]); setHasMore(true); loadTeams(true); };
+  const reloadList = () => { setPage(1); setTeams([]); setHasMore(true); hasMoreRef.current = true; loadTeams(true); };
 
   return (
     <div className="teams-page">
