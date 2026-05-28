@@ -24,6 +24,7 @@ const Countries = () => {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
+  // MISMO PATRÓN EXACTO QUE CIUDADES
   const sentinelRef = useRef<HTMLDivElement>(null);
   const loadingRef = useRef(false);
 
@@ -35,8 +36,7 @@ const Countries = () => {
       setLoading(true);
       setError(null);
       
-      const currentPage = reset ? 1 : page;
-      const response = await countryService.getCountries(searchTerm, 'name', false, currentPage, 10);
+      const response = await countryService.getCountries(searchTerm, 'name', false, reset ? 1 : page, 10);
       
       if (reset) {
         setCountries(response.items);
@@ -64,8 +64,6 @@ const Countries = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchTerm]);
 
-  // IntersectionObserver: se reconecta cuando cambian hasMore o loadCountries
-  // pero loadingRef.previene disparos duplicados
   useEffect(() => {
     const sentinel = sentinelRef.current;
     if (!sentinel) return;
@@ -104,90 +102,52 @@ const Countries = () => {
     setFormData(prev => ({ ...prev, flagImage: file, flagPreview: file ? URL.createObjectURL(file) : prev.flagPreview }));
   };
 
-  const reloadList = () => {
-    setPage(1);
-    setCountries([]);
-    setHasMore(true);
-    loadCountries(true);
-  };
+  const reloadList = () => { setPage(1); setCountries([]); setHasMore(true); loadCountries(true); };
 
   const handleSave = async () => {
-    try {
-      setSaving(true); setError(null);
-      if (editingCountry) {
-        await countryService.updateCountry({ id: editingCountry.id, name: formData.name, isoCode: formData.isoCode, isoCode2: formData.isoCode2 || undefined, flagImage: formData.flagImage });
-        setSuccess('País actualizado correctamente');
-      } else {
-        await countryService.createCountry({ name: formData.name, isoCode: formData.isoCode, isoCode2: formData.isoCode2 || undefined, flagImage: formData.flagImage });
-        setSuccess('País creado correctamente');
-      }
-      setShowModal(false);
-      setTimeout(() => setSuccess(null), 3000);
-      reloadList();
-    } catch (err) { setError('No se pudo guardar el país. Intentá nuevamente.'); console.error(err); }
-    finally { setSaving(false); }
+    try { setSaving(true); setError(null);
+      if (editingCountry) { await countryService.updateCountry({ id: editingCountry.id, name: formData.name, isoCode: formData.isoCode, isoCode2: formData.isoCode2 || undefined, flagImage: formData.flagImage }); setSuccess('País actualizado correctamente'); }
+      else { await countryService.createCountry({ name: formData.name, isoCode: formData.isoCode, isoCode2: formData.isoCode2 || undefined, flagImage: formData.flagImage }); setSuccess('País creado correctamente'); }
+      setShowModal(false); setTimeout(() => setSuccess(null), 3000); reloadList();
+    } catch (err) { setError('No se pudo guardar el país.'); console.error(err); } finally { setSaving(false); }
   };
 
   const handleDelete = async () => {
     if (!deletingCountry) return;
-    try {
-      setSaving(true); setError(null);
+    try { setSaving(true); setError(null);
       await countryService.deleteCountry(deletingCountry.id);
-      setSuccess('País eliminado correctamente');
-      setShowDeleteConfirm(false);
-      setDeletingCountry(null);
-      setTimeout(() => setSuccess(null), 3000);
-      reloadList();
-    } catch (err) { setError('No se pudo eliminar el país. Intentá nuevamente.'); console.error(err); }
-    finally { setSaving(false); }
+      setSuccess('País eliminado correctamente'); setShowDeleteConfirm(false); setDeletingCountry(null); setTimeout(() => setSuccess(null), 3000); reloadList();
+    } catch (err) { setError('No se pudo eliminar el país.'); console.error(err); } finally { setSaving(false); }
   };
 
   return (
     <div className="countries-page">
-      <div className="page-header">
-        <div><h1>Gestión de Países</h1><p>Administra los paises disponibles del sistema</p></div>
-        <button className="btn btn-primary create-btn" onClick={openCreateModal}><Plus size={18} /> Nuevo País</button>
-      </div>
-      {error && <div className="alert alert-error">{error}</div>}
-      {success && <div className="alert alert-success">{success}</div>}
-      <div className="search-bar">
-        <div className="search-input">
-          <Search size={18} />
-          <input type="text" placeholder="Buscar país por nombre..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
-        </div>
-      </div>
+      <div className="page-header"><div><h1>Gestión de Países</h1><p>Administra los paises disponibles del sistema</p></div><button className="btn btn-primary create-btn" onClick={openCreateModal}><Plus size={18} /> Nuevo País</button></div>
+      {error && <div className="alert alert-error">{error}</div>}{success && <div className="alert alert-success">{success}</div>}
+      <div className="search-bar"><div className="search-input"><Search size={18} /><input type="text" placeholder="Buscar país por nombre..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} /></div></div>
       <div className="countries-container">
-        <table className="countries-table">
-          <thead><tr><th>Bandera</th><th>Nombre</th><th>Código ISO</th><th>Código ISO 2</th><th>Acciones</th></tr></thead>
-          <tbody>
-            {countries.map(country => (
-              <tr key={country.id}>
-                <td><img src={countryService.getFlagFullUrl(country.flagUrl)} alt={country.name} className="country-flag" /></td>
-                <td className="country-name">{country.name}</td>
-                <td>{country.isoCode}</td>
-                <td>{country.isoCode2 || '-'}</td>
-                <td className="actions"><button className="icon-btn edit" onClick={() => openEditModal(country)}><Edit2 size={16} /></button><button className="icon-btn delete" onClick={() => openDeleteModal(country)}><Trash2 size={16} /></button></td>
-              </tr>
-            ))}
-          </tbody>
+        <table className="countries-table"><thead><tr><th>Bandera</th><th>Nombre</th><th>Código ISO</th><th>Código ISO 2</th><th>Acciones</th></tr></thead>
+          <tbody>{countries.map(country => (
+            <tr key={country.id}>
+              <td><img src={countryService.getFlagFullUrl(country.flagUrl)} alt={country.name} className="country-flag" /></td>
+              <td className="country-name">{country.name}</td><td>{country.isoCode}</td><td>{country.isoCode2 || '-'}</td>
+              <td className="actions"><button className="icon-btn edit" onClick={() => openEditModal(country)}><Edit2 size={16} /></button><button className="icon-btn delete" onClick={() => openDeleteModal(country)}><Trash2 size={16} /></button></td>
+            </tr>
+          ))}</tbody>
         </table>
-
-        {/* Sentinel: invisible, al final del contenedor */}
         <div ref={sentinelRef} style={{ height: 1 }} />
-
         {loading && <div className="loading-more"><div className="spinner"></div><span>Cargando más paises...</span></div>}
         {!hasMore && countries.length > 0 && <div className="loading-more" style={{ color: '#94a3b8' }}><span>No hay más paises para mostrar</span></div>}
         {countries.length === 0 && !loading && <div className="empty-state"><p>No se encontraron paises</p></div>}
       </div>
-      {/* modales */}
       {showModal && (
         <div className="modal-overlay">
           <div className="modal country-modal">
             <div className="modal-header"><h3>{editingCountry ? 'Editar País' : 'Nuevo País'}</h3><button className="close-btn" onClick={() => setShowModal(false)}><X size={20} /></button></div>
             <div className="modal-body"><div className="form-grid">
-              <div className="form-group"><label>Nombre del País</label><input type="text" value={formData.name} onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))} placeholder="Ej: Argentina" /></div>
-              <div className="form-group"><label>Código ISO</label><input type="text" value={formData.isoCode} onChange={(e) => setFormData(prev => ({ ...prev, isoCode: e.target.value.toUpperCase() }))} placeholder="Ej: ARG" maxLength={5} /></div>
-              <div className="form-group"><label>Código ISO 2</label><input type="text" value={formData.isoCode2} onChange={(e) => setFormData(prev => ({ ...prev, isoCode2: e.target.value.toUpperCase() }))} placeholder="Ej: AR" maxLength={3} /></div>
+              <div className="form-group"><label>Nombre</label><input type="text" value={formData.name} onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))} placeholder="Ej: Argentina" /></div>
+              <div className="form-group"><label>Código ISO</label><input type="text" value={formData.isoCode} onChange={(e) => setFormData(prev => ({ ...prev, isoCode: e.target.value.toUpperCase() }))} maxLength={5} /></div>
+              <div className="form-group"><label>Código ISO 2</label><input type="text" value={formData.isoCode2} onChange={(e) => setFormData(prev => ({ ...prev, isoCode2: e.target.value.toUpperCase() }))} maxLength={3} /></div>
               <div className="form-group"><label>Bandera</label><input type="file" ref={fileInputRef} accept="image/*" onChange={handleFileChange} className="hidden-input" /><div className="file-upload" onClick={() => fileInputRef.current?.click()}>{formData.flagPreview ? <img src={formData.flagPreview} alt="Preview" className="flag-preview" /> : <><Upload size={24} /><span>Haz clic para seleccionar imagen</span></>}</div></div>
             </div></div>
             <div className="modal-footer"><button className="btn btn-secondary" onClick={() => setShowModal(false)} disabled={saving}>Cancelar</button><button className="btn btn-primary" onClick={handleSave} disabled={saving}>{saving ? 'Guardando...' : 'Guardar'}</button></div>
@@ -196,12 +156,7 @@ const Countries = () => {
       )}
       {showDeleteConfirm && (
         <div className="modal-overlay">
-          <div className="modal">
-            <div className="modal-body confirm-body">
-              <AlertTriangle size={48} className="warning-icon" /><h4>¿Estás seguro?</h4>
-              <p>Vas a eliminar el país <strong>{deletingCountry?.name}</strong>. Esta acción no se puede deshacer.</p>
-              <p className="warning-text">Se eliminaran todos los datos relacionados.</p>
-            </div>
+          <div className="modal"><div className="modal-body confirm-body"><AlertTriangle size={48} className="warning-icon" /><h4>¿Estás seguro?</h4><p>Vas a eliminar el país <strong>{deletingCountry?.name}</strong>. Esta acción no se puede deshacer.</p><p className="warning-text">Se eliminaran todos los datos relacionados.</p></div>
             <div className="modal-footer"><button className="btn btn-secondary" onClick={() => setShowDeleteConfirm(false)} disabled={saving}>Cancelar</button><button className="btn btn-danger" onClick={handleDelete} disabled={saving}>{saving ? 'Eliminando...' : 'Confirmar Eliminación'}</button></div>
           </div>
         </div>
