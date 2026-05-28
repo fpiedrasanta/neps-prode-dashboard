@@ -29,13 +29,15 @@ const ImagesPage = () => {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
+  const loadingRef = useRef(loading);
+  useEffect(() => { loadingRef.current = loading; }, [loading]);
+
   const loadImages = useCallback(async (reset: boolean = false) => {
-    setLoading(currentLoading => {
-      if (currentLoading) return currentLoading;
-      return true;
-    });
+    if (loadingRef.current) return;
     
     try {
+      loadingRef.current = true;
+      setLoading(true);
       setError(null);
       
       const currentPage = reset ? 1 : pageRef.current;      
@@ -54,6 +56,7 @@ const ImagesPage = () => {
       console.error(err);
       setError('No se pudieron cargar las imágenes');
     } finally {
+      loadingRef.current = false;
       setLoading(false);
     }
   }, [searchTerm]);
@@ -64,22 +67,11 @@ const ImagesPage = () => {
     setHasMore(true);
     loadImages(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setImages([]);
-      setPage(1);
-      setHasMore(true);
-      loadImages(true);
-    }, 500);
-
-    return () => clearTimeout(timer);
   }, [searchTerm, loadImages]);
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
-    if (scrollHeight - scrollTop <= clientHeight + 100 && hasMore && !loading) {
+    if (scrollHeight - scrollTop <= clientHeight + 100 && hasMore && !loadingRef.current) {
       loadImages();
     }
   };

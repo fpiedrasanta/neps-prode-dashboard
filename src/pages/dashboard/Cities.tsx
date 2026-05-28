@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { cityService, type City } from '../../services/city.service';
 import { countryService, type Country } from '../../services/country.service';
 import { Search, Plus, Edit2, Trash2, X, AlertTriangle, MapPin } from 'lucide-react';
@@ -13,7 +13,13 @@ const Cities = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
-  
+
+  // Refs para evitar stale closures en scroll infinito
+  const pageRef = useRef(page);
+  const loadingRef = useRef(loading);
+  useEffect(() => { pageRef.current = page; }, [page]);
+  useEffect(() => { loadingRef.current = loading; }, [loading]);
+   
   const [showModal, setShowModal] = useState(false);
   const [editingCity, setEditingCity] = useState<City | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -45,12 +51,13 @@ const Cities = () => {
   }, []);
 
   const loadCities = useCallback(async (reset: boolean = false) => {
-    if (loading || !selectedCountryId) return;
+    if (loadingRef.current || !selectedCountryId) return;
     
     try {
+      loadingRef.current = true;
       setLoading(true);
       setError(null);
-      const currentPage = reset ? 1 : page;
+      const currentPage = reset ? 1 : pageRef.current;
       
       const response = await cityService.getCities(selectedCountryId, searchTerm, 'name', false, currentPage, 10);
       
@@ -67,9 +74,10 @@ const Cities = () => {
       setError('No se pudieron cargar las ciudades');
       console.error(err);
     } finally {
+      loadingRef.current = false;
       setLoading(false);
     }
-  }, [selectedCountryId, searchTerm, page, loading]);
+  }, [selectedCountryId, searchTerm]);
 
   useEffect(() => {
     if (selectedCountryId) {
@@ -82,7 +90,7 @@ const Cities = () => {
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
-    if (scrollHeight - scrollTop <= clientHeight + 100 && hasMore && !loading) {
+    if (scrollHeight - scrollTop <= clientHeight + 100 && hasMore && !loadingRef.current) {
       loadCities();
     }
   };

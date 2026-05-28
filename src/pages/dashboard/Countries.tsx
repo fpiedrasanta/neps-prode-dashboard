@@ -10,7 +10,13 @@ const Countries = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
-  
+
+  // Refs para evitar stale closures en scroll infinito
+  const pageRef = useRef(page);
+  const loadingRef = useRef(loading);
+  useEffect(() => { pageRef.current = page; }, [page]);
+  useEffect(() => { loadingRef.current = loading; }, [loading]);
+   
   const [showModal, setShowModal] = useState(false);
   const [editingCountry, setEditingCountry] = useState<Country | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -29,12 +35,13 @@ const Countries = () => {
   const [success, setSuccess] = useState<string | null>(null);
 
   const loadCountries = useCallback(async (reset: boolean = false) => {
-    if (loading) return;
+    if (loadingRef.current) return;
     
     try {
+      loadingRef.current = true;
       setLoading(true);
       setError(null);
-      const currentPage = reset ? 1 : page;
+      const currentPage = reset ? 1 : pageRef.current;
       
       const response = await countryService.getCountries(searchTerm, 'name', false, currentPage, 10);
       
@@ -51,9 +58,10 @@ const Countries = () => {
       setError('No se pudieron cargar los países');
       console.error(err);
     } finally {
+      loadingRef.current = false;
       setLoading(false);
     }
-  }, [searchTerm, page, loading]);
+  }, [searchTerm]);
 
   useEffect(() => {
     setCountries([]);
@@ -64,7 +72,7 @@ const Countries = () => {
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
-    if (scrollHeight - scrollTop <= clientHeight + 100 && hasMore && !loading) {
+    if (scrollHeight - scrollTop <= clientHeight + 100 && hasMore && !loadingRef.current) {
       loadCountries();
     }
   };

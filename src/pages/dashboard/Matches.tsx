@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { matchService, type Match, type MatchResultPayload } from '../../services/match.service';
 import { countryService, type Country } from '../../services/country.service';
 import { cityService, type City } from '../../services/city.service';
@@ -18,7 +18,13 @@ const Matches = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
-  
+
+  // Refs para evitar stale closures en scroll infinito
+  const pageRef = useRef(page);
+  const loadingRef = useRef(loading);
+  useEffect(() => { pageRef.current = page; }, [page]);
+  useEffect(() => { loadingRef.current = loading; }, [loading]);
+   
   const [showResultModal, setShowResultModal] = useState(false);
   const [editingMatch, setEditingMatch] = useState<Match | null>(null);
   const [resultForm, setResultForm] = useState({ homeScore: 0, awayScore: 0 });
@@ -41,12 +47,13 @@ const Matches = () => {
   const [success, setSuccess] = useState<string | null>(null);
 
   const loadMatches = useCallback(async (reset: boolean = false) => {
-    if (loading) return;
+    if (loadingRef.current) return;
     
     try {
+      loadingRef.current = true;
       setLoading(true);
       setError(null);
-      const currentPage = reset ? 1 : page;
+      const currentPage = reset ? 1 : pageRef.current;
       
       const response = await matchService.getMatches(statusFilter, searchTerm, currentPage, 10);
       
@@ -58,14 +65,15 @@ const Matches = () => {
         setPage(prev => prev + 1);
       }
       
-      setHasMore(response.items.length === 10 && matches.length + response.items.length < response.totalCount);
+      setHasMore(response.hasNextPage);
     } catch (err) {
       setError('No se pudieron cargar los partidos');
       console.error(err);
     } finally {
+      loadingRef.current = false;
       setLoading(false);
     }
-  }, [statusFilter, searchTerm, page, loading, matches.length]);
+  }, [statusFilter, searchTerm]);
 
   // Cargar listas maestras al inicio (SIN PAGINADO - trae TODO)
   useEffect(() => {
@@ -104,7 +112,7 @@ const Matches = () => {
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
-    if (scrollHeight - scrollTop <= clientHeight + 100 && hasMore && !loading) {
+    if (scrollHeight - scrollTop <= clientHeight + 100 && hasMore && !loadingRef.current) {
       loadMatches();
     }
   };

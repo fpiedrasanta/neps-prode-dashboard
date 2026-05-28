@@ -33,14 +33,15 @@ const SpecialPosts = () => {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
+  const loadingRef = useRef(loading);
+  useEffect(() => { loadingRef.current = loading; }, [loading]);
+
   const loadPosts = useCallback(async (reset: boolean = false) => {
-    // Usamos función updater para verificar el estado actual de loading sin dependencia
-    setLoading(currentLoading => {
-      if (currentLoading) return currentLoading;
-      return true;
-    });
+    if (loadingRef.current) return;
     
     try {
+      loadingRef.current = true;
+      setLoading(true);
       setError(null);
       
       const currentPage = reset ? 1 : pageRef.current;      
@@ -59,9 +60,9 @@ const SpecialPosts = () => {
       console.error(err);
       setError('No se pudieron cargar los posts especiales');
     } finally {
+      loadingRef.current = false;
       setLoading(false);
     }
-  // ✅ Solución definitiva: eliminamos loading de dependencias, no hay bucle
   }, [searchTerm]);
 
   useEffect(() => {
@@ -70,22 +71,11 @@ const SpecialPosts = () => {
     setHasMore(true);
     loadPosts(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setPosts([]);
-      setPage(1);
-      setHasMore(true);
-      loadPosts(true);
-    }, 500);
-
-    return () => clearTimeout(timer);
   }, [searchTerm, loadPosts]);
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
-    if (scrollHeight - scrollTop <= clientHeight + 100 && hasMore && !loading) {
+    if (scrollHeight - scrollTop <= clientHeight + 100 && hasMore && !loadingRef.current) {
       loadPosts();
     }
   };
