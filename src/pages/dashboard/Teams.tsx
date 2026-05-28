@@ -10,6 +10,7 @@ const Teams = () => {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   
   const [showModal, setShowModal] = useState(false);
@@ -18,10 +19,7 @@ const Teams = () => {
   const [deletingTeam, setDeletingTeam] = useState<Team | null>(null);
   
   const [formData, setFormData] = useState({
-    name: '',
-    countryId: '',
-    flagImage: null as File | null,
-    flagPreview: ''
+    name: '', countryId: '', flagImage: null as File | null, flagPreview: ''
   });
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -30,18 +28,13 @@ const Teams = () => {
 
   const sentinelRef = useRef<HTMLDivElement>(null);
   const loadingRef = useRef(false);
-  const hasMoreRef = useRef(true);
-  const pageRef = useRef(1);
 
-  // Cargar lista de paises al inicio
   useEffect(() => {
     const loadCountries = async () => {
       try {
         const response = await countryService.getCountries(undefined, 'name', false, 1, 100);
         setCountries(response.items);
-        if (response.items.length > 0) {
-          setFormData(prev => ({ ...prev, countryId: response.items[0].id }));
-        }
+        if (response.items.length > 0) setFormData(prev => ({ ...prev, countryId: response.items[0].id }));
       } catch (err) { console.error(err); }
     };
     loadCountries();
@@ -53,17 +46,16 @@ const Teams = () => {
       loadingRef.current = true;
       setLoading(true);
       setError(null);
-      const currentPage = reset ? 1 : pageRef.current;
+      const currentPage = reset ? 1 : page;
       const response = await teamService.getTeams(searchTerm, 'name', false, currentPage, 10);
       if (reset) {
         setTeams(response.items);
-        pageRef.current = 2;
+        setPage(2);
       } else {
         setTeams(prev => [...prev, ...response.items]);
-        pageRef.current += 1;
+        setPage(prev => prev + 1);
       }
       setHasMore(response.hasNextPage);
-      hasMoreRef.current = response.hasNextPage;
     } catch (err) {
       setError('No se pudieron cargar los equipos');
       console.error(err);
@@ -71,13 +63,12 @@ const Teams = () => {
       loadingRef.current = false;
       setLoading(false);
     }
-  }, [searchTerm]);
+  }, [searchTerm, page]);
 
   useEffect(() => {
-    pageRef.current = 1;
     setTeams([]);
+    setPage(1);
     setHasMore(true);
-    hasMoreRef.current = true;
     loadTeams(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchTerm]);
@@ -87,7 +78,7 @@ const Teams = () => {
     if (!sentinel) return;
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries[0].isIntersecting && hasMoreRef.current && !loadingRef.current) loadTeams();
+        if (entries[0].isIntersecting && hasMore && !loadingRef.current) loadTeams();
       },
       { rootMargin: '100px' }
     );
@@ -96,121 +87,62 @@ const Teams = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasMore, loadTeams]);
 
-  // Auto-load cuando no hay scroll
-  useEffect(() => {
-    if (!loading && hasMore && teams.length > 0) {
-      const container = sentinelRef.current?.parentElement;
-      if (container && container.scrollHeight <= container.clientHeight) {
-        loadTeams();
-      }
-    }
-  }, [teams, loading, hasMore, loadTeams]);
-
-  // ... resto del componente
-  const openCreateModal = () => {
-    setEditingTeam(null);
-    setFormData({ name: '', countryId: countries.length > 0 ? countries[0].id : '', flagImage: null, flagPreview: '' });
-    setShowModal(true);
-  };
-
-  const openEditModal = (team: Team) => {
-    setEditingTeam(team);
-    setFormData({ name: team.name, countryId: team.countryId, flagImage: null, flagPreview: teamService.getFlagFullUrl(team.flagUrl) });
-    setShowModal(true);
-  };
-
-  const openDeleteModal = (team: Team) => { setDeletingTeam(team); setShowDeleteConfirm(true); };
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0] || null;
-    setFormData(prev => ({ ...prev, flagImage: file, flagPreview: file ? URL.createObjectURL(file) : prev.flagPreview }));
-  };
-
-  const reloadList = () => {
-    pageRef.current = 1;
-    setTeams([]);
-    setHasMore(true);
-    hasMoreRef.current = true;
-    loadTeams(true);
-  };
+  // Handlers
+  const reloadList = () => { setPage(1); setTeams([]); setHasMore(true); loadTeams(true); };
 
   const handleSave = async () => {
-    try {
-      setSaving(true); setError(null);
-      if (editingTeam) {
-        await teamService.updateTeam({ id: editingTeam.id, name: formData.name, countryId: formData.countryId, flagImage: formData.flagImage });
-        setSuccess('Equipo actualizado correctamente');
-      } else {
-        await teamService.createTeam({ name: formData.name, countryId: formData.countryId, flagImage: formData.flagImage });
-        setSuccess('Equipo creado correctamente');
-      }
-      setShowModal(false); setTimeout(() => setSuccess(null), 3000);
-      reloadList();
-    } catch (err) { setError('No se pudo guardar el equipo. Intentá nuevamente.'); console.error(err); }
-    finally { setSaving(false); }
+    try { setSaving(true); setError(null);
+      if (editingTeam) { await teamService.updateTeam({ id: editingTeam.id, name: formData.name, countryId: formData.countryId, flagImage: formData.flagImage }); setSuccess('Equipo actualizado correctamente'); }
+      else { await teamService.createTeam({ name: formData.name, countryId: formData.countryId, flagImage: formData.flagImage }); setSuccess('Equipo creado correctamente'); }
+      setShowModal(false); setTimeout(() => setSuccess(null), 3000); reloadList();
+    } catch (err) { setError('No se pudo guardar el equipo. Intentá nuevamente.'); console.error(err); } finally { setSaving(false); }
   };
 
   const handleDelete = async () => {
     if (!deletingTeam) return;
-    try {
-      setSaving(true); setError(null);
+    try { setSaving(true); setError(null);
       await teamService.deleteTeam(deletingTeam.id);
-      setSuccess('Equipo eliminado correctamente'); setShowDeleteConfirm(false); setDeletingTeam(null);
-      setTimeout(() => setSuccess(null), 3000);
-      reloadList();
-    } catch (err) { setError('No se pudo eliminar el equipo. Intentá nuevamente.'); console.error(err); }
-    finally { setSaving(false); }
+      setSuccess('Equipo eliminado correctamente'); setShowDeleteConfirm(false); setDeletingTeam(null); setTimeout(() => setSuccess(null), 3000); reloadList();
+    } catch (err) { setError('No se pudo eliminar el equipo. Intentá nuevamente.'); console.error(err); } finally { setSaving(false); }
   };
 
   return (
     <div className="teams-page">
-      <div className="page-header">
-        <div><h1>Gestión de Equipos</h1><p>Administra los equipos/soccer teams</p></div>
-        <button className="btn btn-primary create-btn" onClick={openCreateModal}><Plus size={18} /> Nuevo Equipo</button>
-      </div>
-      {error && <div className="alert alert-error">{error}</div>}
-      {success && <div className="alert alert-success">{success}</div>}
-      <div className="search-bar">
-        <div className="search-input"><Search size={18} /><input type="text" placeholder="Buscar equipo por nombre..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} /></div>
-      </div>
+      <div className="page-header"><div><h1>Gestión de Equipos</h1><p>Administra los equipos/soccer teams</p></div><button className="btn btn-primary create-btn" onClick={() => { setEditingTeam(null); setFormData({ name: '', countryId: countries[0]?.id || '', flagImage: null, flagPreview: '' }); setShowModal(true); }}><Plus size={18} /> Nuevo Equipo</button></div>
+      {error && <div className="alert alert-error">{error}</div>}{success && <div className="alert alert-success">{success}</div>}
+      <div className="search-bar"><div className="search-input"><Search size={18} /><input type="text" placeholder="Buscar equipo por nombre..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} /></div></div>
       <div className="teams-container">
-        <table className="teams-table">
-          <thead><tr><th>Bandera</th><th>Nombre</th><th>País</th><th>Acciones</th></tr></thead>
-          <tbody>
-            {teams.map(team => (
-              <tr key={team.id}>
-                <td><img src={teamService.getFlagFullUrl(team.flagUrl)} alt={team.name} className="team-flag" /></td>
-                <td className="team-name">{team.name}</td><td>{team.countryName}</td>
-                <td className="actions"><button className="icon-btn edit" onClick={() => openEditModal(team)}><Edit2 size={16} /></button><button className="icon-btn delete" onClick={() => openDeleteModal(team)}><Trash2 size={16} /></button></td>
-              </tr>
-            ))}
-          </tbody>
+        <table className="teams-table"><thead><tr><th>Bandera</th><th>Nombre</th><th>País</th><th>Acciones</th></tr></thead>
+          <tbody>{teams.map(team => (
+            <tr key={team.id}>
+              <td><img src={teamService.getFlagFullUrl(team.flagUrl)} alt={team.name} className="team-flag" /></td>
+              <td className="team-name">{team.name}</td><td>{team.countryName}</td>
+              <td className="actions"><button className="icon-btn edit" onClick={() => { setEditingTeam(team); setFormData({ name: team.name, countryId: team.countryId, flagImage: null, flagPreview: teamService.getFlagFullUrl(team.flagUrl) }); setShowModal(true); }}><Edit2 size={16} /></button><button className="icon-btn delete" onClick={() => { setDeletingTeam(team); setShowDeleteConfirm(true); }}><Trash2 size={16} /></button></td>
+            </tr>
+          ))}</tbody>
         </table>
         <div ref={sentinelRef} style={{ height: 1 }} />
         {loading && <div className="loading-more"><div className="spinner"></div><span>Cargando más equipos...</span></div>}
         {!hasMore && teams.length > 0 && <div className="loading-more" style={{ color: '#94a3b8' }}><span>No hay más equipos para mostrar</span></div>}
         {teams.length === 0 && !loading && <div className="empty-state"><p>No se encontraron equipos</p></div>}
       </div>
-      {/* modales... */}
+      {/* modales */}
       {showModal && (
         <div className="modal-overlay">
           <div className="modal country-modal">
             <div className="modal-header"><h3>{editingTeam ? 'Editar Equipo' : 'Nuevo Equipo'}</h3><button className="close-btn" onClick={() => setShowModal(false)}><X size={20} /></button></div>
-            <div className="modal-body">
-              <div className="form-grid">
-                <div className="form-group"><label>Nombre del Equipo</label><input type="text" value={formData.name} onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))} placeholder="Ej: Argentina" /></div>
-                <div className="form-group"><label>País</label><select value={formData.countryId} onChange={(e) => setFormData(prev => ({ ...prev, countryId: e.target.value }))}>{countries.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
-                <div className="form-group full-width"><label>Bandera</label><input type="file" ref={fileInputRef} accept="image/*" onChange={handleFileChange} className="hidden-input" /><div className="file-upload" onClick={() => fileInputRef.current?.click()}>{formData.flagPreview ? <img src={formData.flagPreview} alt="Preview" className="flag-preview" /> : <><Users size={24} /><span>Haz clic para seleccionar imagen</span></>}</div></div>
-              </div>
-            </div>
+            <div className="modal-body"><div className="form-grid">
+              <div className="form-group"><label>Nombre del Equipo</label><input type="text" value={formData.name} onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))} placeholder="Ej: Argentina" /></div>
+              <div className="form-group"><label>País</label><select value={formData.countryId} onChange={(e) => setFormData(prev => ({ ...prev, countryId: e.target.value }))}>{countries.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
+              <div className="form-group full-width"><label>Bandera</label><input type="file" ref={fileInputRef} accept="image/*" onChange={(e) => { const file = e.target.files?.[0] || null; setFormData(prev => ({ ...prev, flagImage: file, flagPreview: file ? URL.createObjectURL(file) : prev.flagPreview })); }} className="hidden-input" /><div className="file-upload" onClick={() => fileInputRef.current?.click()}>{formData.flagPreview ? <img src={formData.flagPreview} alt="Preview" className="flag-preview" /> : <><Users size={24} /><span>Haz clic para seleccionar imagen</span></>}</div></div>
+            </div></div>
             <div className="modal-footer"><button className="btn btn-secondary" onClick={() => setShowModal(false)} disabled={saving}>Cancelar</button><button className="btn btn-primary" onClick={handleSave} disabled={saving}>{saving ? 'Guardando...' : 'Guardar'}</button></div>
           </div>
         </div>
       )}
       {showDeleteConfirm && (
         <div className="modal-overlay">
-          <div className="modal">
-            <div className="modal-body confirm-body"><AlertTriangle size={48} className="warning-icon" /><h4>¿Estás seguro?</h4><p>Vas a eliminar el equipo <strong>{deletingTeam?.name}</strong>. Esta acción no se puede deshacer.</p></div>
+          <div className="modal"><div className="modal-body confirm-body"><AlertTriangle size={48} className="warning-icon" /><h4>¿Estás seguro?</h4><p>Vas a eliminar el equipo <strong>{deletingTeam?.name}</strong>. Esta acción no se puede deshacer.</p></div>
             <div className="modal-footer"><button className="btn btn-secondary" onClick={() => setShowDeleteConfirm(false)} disabled={saving}>Cancelar</button><button className="btn btn-danger" onClick={handleDelete} disabled={saving}>{saving ? 'Eliminando...' : 'Confirmar Eliminación'}</button></div>
           </div>
         </div>
