@@ -69,6 +69,10 @@ const ImagesPage = () => {
                 <div className="image-info">
                   <div className="image-name">{image.name || image.fileName}</div>
                   <div className="image-meta"><span className="meta-item"><Calendar size={12} />{new Date(image.date).toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'})}</span></div>
+                  <div className="image-full-url" onClick={() => navigator.clipboard.writeText(new URL(image.url, API_CONFIG.CDN_URL).href)} title="Click para copiar URL">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                    <span>{new URL(image.url, API_CONFIG.CDN_URL).href}</span>
+                  </div>
                 </div>
                 <div className="image-actions">
                   <button className="icon-btn edit" onClick={() => { setEditingImage(image); setShowModal(true); }}><Edit2 size={14} /></button>
