@@ -36,6 +36,7 @@ const Teams = () => {
     loadCountries();
   }, []);
 
+  // EXACTAMENTE IGUAL QUE COUNTRIES
   const loadTeams = useCallback(async (reset: boolean = false) => {
     if (loadingRef.current) return;
     try {
@@ -53,7 +54,6 @@ const Teams = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchTerm]);
 
-  // EXACTAMENTE IGUAL QUE countries, cities, special-posts, images
   useEffect(() => {
     const sentinel = sentinelRef.current;
     if (!sentinel) return;

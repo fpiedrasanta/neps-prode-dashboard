@@ -35,7 +35,6 @@ const Matches = () => {
 
   const sentinelRef = useRef<HTMLDivElement>(null);
   const loadingRef = useRef(false);
-  const hasMoreRef = useRef(true);
 
   const loadMatches = useCallback(async (reset: boolean = false) => {
     if (loadingRef.current) return;
@@ -45,7 +44,6 @@ const Matches = () => {
       if (reset) { setMatches(response.items); setPage(2); }
       else { setMatches(prev => [...prev, ...response.items]); setPage(prev => prev + 1); }
       setHasMore(response.hasNextPage);
-      hasMoreRef.current = response.hasNextPage;
     } catch (err) { setError('No se pudieron cargar los partidos'); console.error(err); }
     finally { loadingRef.current = false; setLoading(false); }
   }, [statusFilter, searchTerm, page]);
@@ -71,28 +69,22 @@ const Matches = () => {
   }, [matchForm.countryId]);
 
   useEffect(() => {
-    setMatches([]); setPage(1); setHasMore(true); hasMoreRef.current = true; loadMatches(true);
+    setMatches([]); setPage(1); setHasMore(true); loadMatches(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statusFilter, searchTerm]);
-
-  // Ref para que el observer siempre llame la última versión de loadMatches
-  const loadMatchesRef = useRef(loadMatches);
-  useEffect(() => { loadMatchesRef.current = loadMatches; }, [loadMatches]);
 
   useEffect(() => {
     const sentinel = sentinelRef.current;
     if (!sentinel) return;
     const observer = new IntersectionObserver((entries) => {
-      if (entries[0].isIntersecting && hasMoreRef.current && !loadingRef.current) {
-        loadMatchesRef.current();
-      }
+      if (entries[0].isIntersecting && hasMore && !loadingRef.current) loadMatches();
     }, { rootMargin: '100px' });
     observer.observe(sentinel);
     return () => observer.disconnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasMore, statusFilter, searchTerm]);
+  }, [hasMore, loadMatches]);
 
-  const reloadList = () => { setPage(1); setMatches([]); setHasMore(true); hasMoreRef.current = true; loadMatches(true); };
+  const reloadList = () => { setPage(1); setMatches([]); setHasMore(true); loadMatches(true); };
 
   const statusLabel: Record<number, string> = { 1: 'Próximo', 2: 'En Juego', 3: 'Finalizado' };
   const statusClass: Record<number, string> = { 1: 'status-upcoming', 2: 'status-live', 3: 'status-finished' };
